@@ -1,0 +1,49 @@
+import {
+  Controller,
+  Post,
+  Get,
+  Put,
+  Body,
+  Req,
+  HttpCode,
+  HttpStatus,
+  UseGuards,
+} from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { AuthService } from './auth.service';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('register')
+  @HttpCode(HttpStatus.CREATED)
+  register(@Body() dto: RegisterDto, @Req() req: any) {
+    return this.authService.register(dto, req.ip);
+  }
+
+  @Post('login')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ auth: { limit: 5, ttl: 900000 } })
+  login(@Body() dto: LoginDto, @Req() req: any) {
+    return this.authService.login(dto, req.ip);
+  }
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  getProfile(@Req() req: any) {
+    return this.authService.getProfile(req.user.sub);
+  }
+
+  @Put('me')
+  @UseGuards(JwtAuthGuard)
+  updateProfile(
+    @Body() body: { fullName?: string; email?: string },
+    @Req() req: any,
+  ) {
+    return this.authService.updateProfile(req.user.sub, body);
+  }
+}

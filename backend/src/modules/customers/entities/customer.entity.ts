@@ -20,17 +20,17 @@ export class Customer {
   @Column({ name: 'EMAIL', length: 200 })
   email: string;
 
-  @Column({ name: 'PHONE', type: 'blob', nullable: true })
-  phone: Buffer | null;
+  @Column({ name: 'PHONE', type: 'blob' })
+  phone: Buffer;
 
-  @Column({ name: 'CCCD', type: 'blob', nullable: true })
-  cccd: Buffer | null;
+  @Column({ name: 'CCCD', type: 'blob' })
+  cccd: Buffer;
 
-  @Column({ name: 'DATE_OF_BIRTH', type: 'blob', nullable: true })
-  dateOfBirth: Buffer | null;
+  @Column({ name: 'DATE_OF_BIRTH', type: 'blob' })
+  dateOfBirth: Buffer;
 
-  @Column({ name: 'ADDRESS', type: 'blob', nullable: true })
-  address: Buffer | null;
+  @Column({ name: 'ADDRESS', type: 'blob' })
+  address: Buffer;
 
   @Column({ name: 'PIN_HASH', length: 255, nullable: true })
   pinHash: string | null;

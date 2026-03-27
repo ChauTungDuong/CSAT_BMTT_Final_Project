@@ -14,8 +14,9 @@ import RegisterPage from "./pages/RegisterPage";
 import { DashboardPage } from "./pages/customer/DashboardPage";
 import { ProfilePage } from "./pages/customer/ProfilePage";
 import { TransferPage } from "./pages/customer/TransferPage";
-
-import { TellerPage } from "./pages/teller/TellerPage";
+import { PinSetupPage } from "./pages/customer/PinSetupPage";
+import { TransactionHistoryPage } from "./pages/customer/TransactionHistoryPage";
+import { CardsPage } from "./pages/customer/CardsPage";
 
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
 import { AuditPage } from "./pages/admin/AuditPage";
@@ -42,7 +43,6 @@ function RoleRedirect() {
   if (isLoading) return null;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === "admin") return <Navigate to="/admin" replace />;
-  if (user.role === "teller") return <Navigate to="/teller" replace />;
   return <Navigate to="/dashboard" replace />;
 }
 
@@ -77,6 +77,9 @@ export default function App() {
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/transfer" element={<TransferPage />} />
+            <Route path="/history" element={<TransactionHistoryPage />} />
+            <Route path="/cards" element={<CardsPage />} />
+            <Route path="/pin-setup" element={<PinSetupPage />} />
           </Route>
 
           {/* Admin */}
@@ -84,12 +87,6 @@ export default function App() {
             <Route path="/admin" element={<AdminDashboard />} />
             <Route path="/admin/audit" element={<AuditPage />} />
             <Route path="/admin/profile" element={<UserProfilePage />} />
-          </Route>
-
-          {/* Teller */}
-          <Route element={<RequireAuth allowedRoles={["teller"]} />}>
-            <Route path="/teller" element={<TellerPage />} />
-            <Route path="/teller/profile" element={<UserProfilePage />} />
           </Route>
         </Route>
 

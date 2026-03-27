@@ -1,7 +1,7 @@
 export interface User {
   id: string;
   username: string;
-  role: "customer" | "teller" | "admin";
+  role: "customer" | "admin";
 }
 
 export interface Customer {
@@ -13,6 +13,7 @@ export interface Customer {
   dateOfBirth: string;
   address: string;
   isPinVerified: boolean;
+  hasPin: boolean;
 }
 
 export interface Account {
@@ -23,6 +24,14 @@ export interface Account {
   balanceMasked: string;
   cardNumber?: string;
   createdAt: string;
+}
+
+export interface Card {
+  id: string;
+  cardNumber: string;
+  expiry: string;
+  createdAt: string;
+  cvv?: string;
 }
 
 export interface Transaction {

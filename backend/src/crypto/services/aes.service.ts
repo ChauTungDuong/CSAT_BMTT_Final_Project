@@ -6,6 +6,9 @@ import {
   EncryptedCell,
   ICryptoService,
 } from '../interfaces/crypto.interface';
+import { encryptGCM, decryptGCM } from '../aes-gcm';
+import { CryptoLogService } from './crypto-log.service';
+import { CryptoTraceContextService } from './crypto-trace-context.service';
 
 @Injectable()
 export class AesService implements ICryptoService {
@@ -13,7 +16,11 @@ export class AesService implements ICryptoService {
   private readonly masterKey: Buffer;
   private readonly hmacSecret: Buffer;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly cryptoLog: CryptoLogService,
+    private readonly traceContext: CryptoTraceContextService,
+  ) {
     const keyHex = config.getOrThrow<string>('AES_MASTER_KEY');
     const hmacHex = config.getOrThrow<string>('HMAC_SECRET');
 
@@ -27,19 +34,50 @@ export class AesService implements ICryptoService {
   }
 
   async encrypt(plaintext: string): Promise<CellValue> {
-    // IV ngẫu nhiên mỗi lần — BẮT BUỘC
+    const actionId = this.traceContext.getActionId() ?? crypto.randomUUID();
+    const actionName = this.traceContext.getActionName() ?? 'SYSTEM';
+    const userId = this.traceContext.getUserId();
+    const keySnippet = this.masterKey.slice(0, 4).toString('hex') + '...';
+
+    // IV ngẫu nhiên mỗi lần — BẮT BUỘC 12 bytes cho GCM
     const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', this.masterKey, iv);
-
-    const ciphertext = Buffer.concat([
-      cipher.update(plaintext, 'utf8'),
-      cipher.final(),
-    ]);
-    const tag = cipher.getAuthTag(); // 16 bytes authentication tag
-
-    const payloadB64 = ciphertext.toString('base64');
     const ivB64 = iv.toString('base64');
-    const tagB64 = tag.toString('base64');
+
+    // Log: input plaintext
+    this.cryptoLog.addLog({
+      actionId,
+      userId,
+      actionName,
+      operation: 'encrypt',
+      layer: 'AES-256',
+      input: plaintext,
+      output: plaintext,
+      iv: ivB64,
+      keySnippet,
+      status: 'success',
+    });
+
+    // Sử dụng AES-GCM TypeScript thuần túy
+    const plainBytes = Buffer.from(plaintext, 'utf8');
+    const { ciphertext, authTag } = encryptGCM(this.masterKey, iv, plainBytes);
+
+    const payloadB64 = Buffer.from(ciphertext).toString('base64');
+    const tagB64 = Buffer.from(authTag).toString('base64');
+
+    // Log: AES encryption output
+    this.cryptoLog.addLog({
+      actionId,
+      userId,
+      actionName,
+      operation: 'encrypt',
+      layer: 'AES-256',
+      input: plaintext,
+      output: payloadB64,
+      iv: ivB64,
+      tag: tagB64,
+      keySnippet,
+      status: 'success',
+    });
 
     // HMAC trên toàn bộ ciphertext + IV + tag để detect tampering
     const hmac = crypto
@@ -47,7 +85,7 @@ export class AesService implements ICryptoService {
       .update(`${payloadB64}.${ivB64}.${tagB64}`)
       .digest('hex');
 
-    return {
+    const cell = {
       type: 'encrypted',
       algo: 'aes-256-gcm',
       payload: payloadB64,
@@ -55,12 +93,49 @@ export class AesService implements ICryptoService {
       tag: tagB64,
       hmac,
     } as EncryptedCell;
+
+    // Log: HMAC verification & final result
+    this.cryptoLog.addLog({
+      actionId,
+      userId,
+      actionName,
+      operation: 'encrypt',
+      layer: 'HMAC',
+      input: payloadB64,
+      output: payloadB64,
+      iv: ivB64,
+      tag: tagB64,
+      keySnippet,
+      status: 'success',
+    });
+
+    return cell;
   }
 
   async decrypt(cell: CellValue): Promise<string | null> {
     if (cell.type === 'clear') return cell.data;
 
+    const actionId = this.traceContext.getActionId() ?? crypto.randomUUID();
+    const actionName = this.traceContext.getActionName() ?? 'SYSTEM';
+    const userId = this.traceContext.getUserId();
+    const keySnippet = this.masterKey.slice(0, 4).toString('hex') + '...';
+
     const enc = cell as EncryptedCell;
+
+    // Log: input encrypted
+    this.cryptoLog.addLog({
+      actionId,
+      userId,
+      actionName,
+      operation: 'decrypt',
+      layer: 'AES-256',
+      input: enc.payload,
+      output: enc.payload,
+      iv: enc.iv,
+      tag: enc.tag,
+      keySnippet,
+      status: 'success',
+    });
 
     // 1. Verify HMAC trước khi decrypt
     const expectedHmac = crypto
@@ -68,26 +143,85 @@ export class AesService implements ICryptoService {
       .update(`${enc.payload}.${enc.iv}.${enc.tag}`)
       .digest('hex');
 
-    if (expectedHmac !== enc.hmac) {
+    const authTagVerified = expectedHmac === enc.hmac;
+
+    if (!authTagVerified) {
       this.logger.error('HMAC mismatch — dữ liệu có thể bị giả mạo');
+      this.cryptoLog.addLog({
+        actionId,
+        userId,
+        actionName,
+        operation: 'decrypt',
+        layer: 'HMAC',
+        input: enc.payload,
+        output: enc.payload,
+        iv: enc.iv,
+        tag: enc.tag,
+        authTag: 'false',
+        keySnippet,
+        status: 'failure',
+      });
       return null; // KHÔNG throw để tránh timing attack
     }
 
-    // 2. Decrypt
+    // Log: HMAC verification success
+    this.cryptoLog.addLog({
+      actionId,
+      userId,
+      actionName,
+      operation: 'decrypt',
+      layer: 'HMAC',
+      input: enc.payload,
+      output: enc.payload,
+      iv: enc.iv,
+      tag: enc.tag,
+      authTag: 'true',
+      keySnippet,
+      status: 'success',
+    });
+
+    // 2. Decrypt bằng AES-GCM TypeScript thuần túy
     try {
-      const decipher = crypto.createDecipheriv(
-        'aes-256-gcm',
+      const plaintextBytes = decryptGCM(
         this.masterKey,
         Buffer.from(enc.iv, 'base64'),
+        Buffer.from(enc.payload, 'base64'),
+        Buffer.from(enc.tag, 'base64'),
       );
-      decipher.setAuthTag(Buffer.from(enc.tag, 'base64'));
 
-      return Buffer.concat([
-        decipher.update(Buffer.from(enc.payload, 'base64')),
-        decipher.final(),
-      ]).toString('utf8');
-    } catch {
+      const plaintext = Buffer.from(plaintextBytes).toString('utf8');
+
+      // Log: decryption output
+      this.cryptoLog.addLog({
+        actionId,
+        userId,
+        actionName,
+        operation: 'decrypt',
+        layer: 'AES-256',
+        input: enc.payload,
+        output: plaintext,
+        iv: enc.iv,
+        tag: enc.tag,
+        keySnippet,
+        status: 'success',
+      });
+
+      return plaintext;
+    } catch (err) {
       this.logger.error('AES-GCM decrypt thất bại — auth tag không khớp');
+      this.cryptoLog.addLog({
+        actionId,
+        userId,
+        actionName,
+        operation: 'decrypt',
+        layer: 'AES-256',
+        input: enc.payload,
+        output: '',
+        iv: enc.iv,
+        tag: enc.tag,
+        keySnippet,
+        status: 'failure',
+      });
       return null;
     }
   }

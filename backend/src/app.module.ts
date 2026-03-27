@@ -9,8 +9,8 @@ import { AuthModule } from './modules/auth/auth.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { AccountsModule } from './modules/accounts/accounts.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
-import { TellerModule } from './modules/teller/teller.module';
 import { AdminModule } from './modules/admin/admin.module';
+import { CardsModule } from './modules/cards/cards.module';
 
 @Module({
   imports: [
@@ -59,8 +59,8 @@ import { AdminModule } from './modules/admin/admin.module';
     CustomersModule,
     AccountsModule,
     TransactionsModule,
-    TellerModule,
     AdminModule,
+    CardsModule,
   ],
 })
 export class AppModule {}

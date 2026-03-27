@@ -7,11 +7,15 @@ import { User } from './entities/user.entity';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { Customer } from '../customers/entities/customer.entity';
+import { Account } from '../accounts/entities/account.entity';
+import { CryptoModule } from '../../crypto/crypto.module';
 import { AuditModule } from '../../audit/audit.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, Customer, Account]),
+    CryptoModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

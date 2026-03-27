@@ -5,12 +5,7 @@ export default function Navbar() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const homeRoute =
-    user?.role === "admin"
-      ? "/admin"
-      : user?.role === "teller"
-        ? "/teller"
-        : "/dashboard";
+  const homeRoute = user?.role === "admin" ? "/admin" : "/dashboard";
 
   return (
     <nav className="bg-blue-700 text-white px-6 py-3 flex items-center justify-between shadow">

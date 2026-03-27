@@ -1,4 +1,4 @@
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "../../api/client";
@@ -11,15 +11,23 @@ export function TransferPage() {
     toAccountNumber: "",
     amount: "",
     description: "",
+    pin: "",
   });
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const { data: accounts } = useQuery<Account[]>({
     queryKey: ["my-accounts"],
     queryFn: async () => (await api.get("/accounts/me")).data,
   });
+
+  // Auto-select first account when loaded
+  useEffect(() => {
+    if (accounts && accounts.length > 0 && !form.fromAccountId) {
+      setForm((prev) => ({ ...prev, fromAccountId: accounts[0].id }));
+    }
+  }, [accounts, form.fromAccountId]);
 
   const set =
     (field: keyof typeof form) =>
@@ -33,10 +41,13 @@ export function TransferPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
-    setSuccess("");
     const amt = parseFloat(form.amount);
     if (isNaN(amt) || amt <= 0) {
       setError("Số tiền không hợp lệ.");
+      return;
+    }
+    if (!/^\d{6}$/.test(form.pin)) {
+      setError("Mã PIN phải là 6 chữ số.");
       return;
     }
     setLoading(true);
@@ -46,14 +57,9 @@ export function TransferPage() {
         toAccountNumber: form.toAccountNumber,
         amount: amt,
         description: form.description,
+        pin: form.pin,
       });
-      setSuccess("Chuyển tiền thành công!");
-      setForm((p) => ({
-        ...p,
-        toAccountNumber: "",
-        amount: "",
-        description: "",
-      }));
+      setShowSuccessDialog(true);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })
         ?.response?.data?.message;
@@ -65,8 +71,13 @@ export function TransferPage() {
     }
   };
 
+  const handleCloseSuccess = () => {
+    setShowSuccessDialog(false);
+    navigate("/dashboard");
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 relative">
       <div className="max-w-lg mx-auto px-4 py-8">
         <div className="flex items-center gap-3 mb-6">
           <button
@@ -84,19 +95,15 @@ export function TransferPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Tài khoản nguồn
               </label>
-              <select
-                value={form.fromAccountId}
-                onChange={set("fromAccountId")}
-                required
-                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
-              >
-                <option value="">— Chọn tài khoản —</option>
-                {accounts?.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.accountNumber} ({a.accountType})
-                  </option>
-                ))}
-              </select>
+              <div className="w-full border rounded-lg px-3 py-2 bg-gray-100 text-gray-700 flex items-center">
+                {accounts?.[0] ? (
+                  <span>
+                    {accounts[0].accountNumber} ({accounts[0].accountType})
+                  </span>
+                ) : (
+                  <span className="text-gray-400">Đang tải...</span>
+                )}
+              </div>
             </div>
 
             <div>
@@ -143,27 +150,71 @@ export function TransferPage() {
               />
             </div>
 
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Mã PIN xác thực
+              </label>
+              <input
+                type="password"
+                maxLength={6}
+                value={form.pin}
+                onChange={set("pin")}
+                required
+                placeholder="Nhập mã PIN 6 số"
+                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none tracking-widest text-center"
+              />
+            </div>
+
             {error && (
               <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg">
                 {error}
-              </div>
-            )}
-            {success && (
-              <div className="bg-green-50 text-green-700 text-sm px-4 py-3 rounded-lg">
-                {success}
               </div>
             )}
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition"
+              className="w-full mt-4 bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition"
             >
               {loading ? "Đang xử lý…" : "Chuyển tiền"}
             </button>
           </form>
         </div>
       </div>
+
+      {showSuccessDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 text-center transform transition-all">
+            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg
+                className="w-8 h-8 text-green-500"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M5 13l4 4L19 7"
+                />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 mb-2">
+              Chuyển tiền thành công!
+            </h3>
+            <p className="text-gray-500 mb-6">
+              Số tiền đã được chuyển đến tài khoản {form.toAccountNumber}.
+            </p>
+            <button
+              onClick={handleCloseSuccess}
+              className="w-full bg-green-600 text-white py-2 rounded-xl font-medium hover:bg-green-700 transition-colors"
+            >
+              Trở về trang chủ
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

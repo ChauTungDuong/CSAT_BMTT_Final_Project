@@ -13,7 +13,6 @@ interface UserProfile {
 
 const roleLabel: Record<string, string> = {
   admin: "Quản trị viên",
-  teller: "Giao dịch viên",
   customer: "Khách hàng",
 };
 
@@ -26,12 +25,15 @@ export function UserProfilePage() {
   const [saveError, setSaveError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState("");
 
-  const homeRoute = user?.role === "admin" ? "/admin" : "/teller";
+  const homeRoute = user?.role === "admin" ? "/admin" : "/dashboard";
 
   useEffect(() => {
     api.get("/auth/me").then((res) => {
       setProfile(res.data);
-      setForm({ fullName: res.data.fullName ?? "", email: res.data.email ?? "" });
+      setForm({
+        fullName: res.data.fullName ?? "",
+        email: res.data.email ?? "",
+      });
     });
   }, []);
 
@@ -47,7 +49,9 @@ export function UserProfilePage() {
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })
         ?.response?.data?.message;
-      setSaveError(Array.isArray(msg) ? msg.join(", ") : (msg ?? "Lỗi lưu thông tin"));
+      setSaveError(
+        Array.isArray(msg) ? msg.join(", ") : (msg ?? "Lỗi lưu thông tin"),
+      );
     }
   };
 
@@ -131,9 +135,7 @@ export function UserProfilePage() {
                   className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
                 />
               </div>
-              {saveError && (
-                <p className="text-red-500 text-sm">{saveError}</p>
-              )}
+              {saveError && <p className="text-red-500 text-sm">{saveError}</p>}
               <div className="flex gap-3">
                 <button
                   type="button"

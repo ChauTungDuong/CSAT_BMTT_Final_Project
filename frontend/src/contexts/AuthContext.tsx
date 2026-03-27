@@ -9,7 +9,7 @@ import api from "../api/client";
 
 interface AuthUser {
   accessToken: string;
-  role: "customer" | "teller" | "admin";
+  role: "customer" | "admin";
 }
 
 interface AuthContextType {

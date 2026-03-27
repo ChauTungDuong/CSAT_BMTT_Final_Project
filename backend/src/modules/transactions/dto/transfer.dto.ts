@@ -23,4 +23,9 @@ export class TransferDto {
   @IsString()
   @MaxLength(500)
   description?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(6)
+  pin: string;
 }

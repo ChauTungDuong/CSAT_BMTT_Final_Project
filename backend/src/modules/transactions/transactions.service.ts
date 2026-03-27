@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import * as crypto from 'crypto';
+import * as bcrypt from 'bcryptjs';
 import { Account } from '../accounts/entities/account.entity';
 import { Customer } from '../customers/entities/customer.entity';
 import { Transaction } from './entities/transaction.entity';
@@ -26,13 +27,23 @@ export class TransactionsService {
   ) {}
 
   async transfer(dto: TransferDto, userId: string, ip: string) {
+    const toAccountNumber = dto.toAccountNumber.trim();
+
     if (dto.amount <= 0)
       throw new BadRequestException('Số tiền phải lớn hơn 0');
 
-    // Kiểm tra fromAccount thuộc về user này
+    // Kiểm tra fromAccount thuộc về user này và check PIN
     const customer = await this.customerRepo.findOne({ where: { userId } });
     if (!customer)
       throw new NotFoundException('Hồ sơ khách hàng không tồn tại');
+
+    if (
+      !customer.pinHash ||
+      !(await bcrypt.compare(dto.pin, customer.pinHash))
+    ) {
+      await this.audit.log('TRANSFER_FAIL', userId, null, ip, 'Sai mã PIN');
+      throw new ForbiddenException('Mã PIN không hợp lệ');
+    }
 
     const ownerCheck = await this.accountRepo.findOne({
       where: { id: dto.fromAccountId, customerId: customer.id },
@@ -45,16 +56,26 @@ export class TransactionsService {
     await queryRunner.startTransaction();
 
     try {
+      // Oracle không hỗ trợ mẫu SQL FOR UPDATE mà TypeORM sinh ra cho findOne+lock
+      // (dính ORA-02014). Dùng raw FOR UPDATE để lock row an toàn.
+      await queryRunner.query(
+        'SELECT ID FROM ACCOUNTS WHERE ID = :1 FOR UPDATE',
+        [dto.fromAccountId],
+      );
+
       const fromAccount = await queryRunner.manager.findOne(Account, {
         where: { id: dto.fromAccountId },
-        lock: { mode: 'pessimistic_write' },
       });
       if (!fromAccount)
         throw new NotFoundException('Tài khoản nguồn không tồn tại');
 
+      await queryRunner.query(
+        'SELECT ID FROM ACCOUNTS WHERE ACCOUNT_NUMBER = :1 FOR UPDATE',
+        [toAccountNumber],
+      );
+
       const toAccount = await queryRunner.manager.findOne(Account, {
-        where: { accountNumber: dto.toAccountNumber },
-        lock: { mode: 'pessimistic_write' },
+        where: { accountNumber: toAccountNumber },
       });
       if (!toAccount)
         throw new NotFoundException('Tài khoản đích không tồn tại');
@@ -107,7 +128,7 @@ export class TransactionsService {
         userId,
         tx.id,
         ip,
-        `From: ${dto.fromAccountId}, To: ${dto.toAccountNumber}, Ref: ${refCode}`,
+        `From: ${dto.fromAccountId}, To: ${toAccountNumber}, Ref: ${refCode}`,
       );
 
       return {

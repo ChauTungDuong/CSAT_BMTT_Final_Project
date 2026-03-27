@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "../../api/client";
 import { PinModal } from "../../components/common/PinModal";
+import { MaskedField } from "../../components/common/MaskedField";
 import type { Customer } from "../../types";
 
 interface UpdateProfileForm {
@@ -10,11 +11,7 @@ interface UpdateProfileForm {
   email: string;
 }
 
-interface CustomerWithPin extends Customer {
-  hasPin?: boolean;
-}
-
-// Component nhập PIN (6 ô) dùng nội bộ
+// Component nhập PIN (6 ô) dùng nội bộ cho việc ĐÔI/ĐẶT PIN
 function PinInput({
   label,
   value,
@@ -62,6 +59,8 @@ function PinInput({
 export function ProfilePage() {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
+  const [pinVerified, setPinVerified] = useState(false);
+  const [showPinModal, setShowPinModal] = useState(false);
   const [showSetPin, setShowSetPin] = useState(false);
   const [showChangePinForm, setShowChangePinForm] = useState(false);
   const [oldPinDigits, setOldPinDigits] = useState<string[]>(Array(6).fill(""));
@@ -74,16 +73,16 @@ export function ProfilePage() {
   });
   const [saveError, setSaveError] = useState("");
 
-  const { data: profile, refetch } = useQuery<CustomerWithPin>({
-    queryKey: ["my-profile"],
+  const { data: profile, refetch } = useQuery<Customer>({
+    queryKey: ["my-profile", pinVerified],
     queryFn: async () => {
-      const { data } = await api.get("/customers/me");
+      const { data } = await api.get(`/customers/me${pinVerified ? "?pinVerified=true" : ""}`);
       return data;
     },
-    onSuccess: (data: CustomerWithPin) => {
+    onSuccess: (data: Customer) => {
       setForm({ fullName: data.fullName ?? "", email: data.email ?? "" });
     },
-  } as Parameters<typeof useQuery<CustomerWithPin>>[0]);
+  } as any);
 
   const handleSave = async (e: FormEvent) => {
     e.preventDefault();
@@ -99,6 +98,11 @@ export function ProfilePage() {
         Array.isArray(msg) ? msg.join(", ") : (msg ?? "Lỗi lưu thông tin"),
       );
     }
+  };
+
+  const handlePinSuccess = () => {
+    setPinVerified(true);
+    setShowPinModal(false);
   };
 
   // Đặt PIN lần đầu (chưa có PIN)
@@ -153,26 +157,36 @@ export function ProfilePage() {
         </div>
 
         <div className="bg-white rounded-xl shadow-sm p-6 mb-4">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="font-semibold">Thông tin cơ bản</h2>
-            {!editing && (
-              <button
-                onClick={() => {
-                  setForm({
-                    fullName: profile?.fullName ?? "",
-                    email: profile?.email ?? "",
-                  });
-                  setEditing(true);
-                }}
-                className="text-sm text-blue-600 hover:underline"
-              >
-                Chỉnh sửa
-              </button>
-            )}
+          <div className="flex justify-between items-center mb-4 border-b pb-2">
+            <h2 className="font-semibold text-lg text-blue-800">Thông tin cơ bản</h2>
+            <div className="flex gap-4 items-center">
+              {!pinVerified && (
+                <button
+                  onClick={() => setShowPinModal(true)}
+                  className="text-sm font-medium text-blue-600 hover:bg-blue-50 px-3 py-1 rounded"
+                >
+                  🔑 Xem chi tiết
+                </button>
+              )}
+              {!editing && (
+                <button
+                  onClick={() => {
+                    setForm({
+                      fullName: profile?.fullName ?? "",
+                      email: profile?.email ?? "",
+                    });
+                    setEditing(true);
+                  }}
+                  className="text-sm bg-gray-100 text-gray-700 font-medium px-3 py-1 rounded hover:bg-gray-200"
+                >
+                  Chỉnh sửa
+                </button>
+              )}
+            </div>
           </div>
 
           {editing ? (
-            <form onSubmit={handleSave} className="space-y-4">
+            <form onSubmit={handleSave} className="space-y-4 pt-2">
               <div>
                 <label className="block text-sm text-gray-600 mb-1">
                   Họ và tên
@@ -199,7 +213,7 @@ export function ProfilePage() {
                 />
               </div>
               {saveError && <p className="text-red-500 text-sm">{saveError}</p>}
-              <div className="flex gap-3">
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setEditing(false)}
@@ -216,16 +230,14 @@ export function ProfilePage() {
               </div>
             </form>
           ) : (
-            <dl className="space-y-3 text-sm">
-              <div>
-                <dt className="text-gray-500">Họ và tên</dt>
-                <dd className="font-medium">{profile?.fullName}</dd>
-              </div>
-              <div>
-                <dt className="text-gray-500">Email</dt>
-                <dd className="font-medium">{profile?.email}</dd>
-              </div>
-            </dl>
+            <div className="grid grid-cols-2 gap-x-8 pt-2">
+              <MaskedField label="Họ và tên" value={profile?.fullName} isMasked={false} />
+              <MaskedField label="Email" value={profile?.email} isMasked={!pinVerified} />
+              <MaskedField label="Số điện thoại" value={profile?.phone} isMasked={!pinVerified} />
+              <MaskedField label="CCCD" value={profile?.cccd} isMasked={!pinVerified} />
+              <MaskedField label="Ngày sinh" value={profile?.dateOfBirth} isMasked={!pinVerified} />
+              <MaskedField label="Địa chỉ" value={profile?.address} isMasked={!pinVerified} />
+            </div>
           )}
         </div>
 
@@ -253,7 +265,7 @@ export function ProfilePage() {
                 onChange={setNewPinDigits}
               />
               {pinError && <p className="text-red-500 text-sm">{pinError}</p>}
-              <div className="flex gap-3">
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -300,6 +312,13 @@ export function ProfilePage() {
           )}
         </div>
       </div>
+
+      {showPinModal && (
+        <PinModal
+          onSuccess={handlePinSuccess}
+          onClose={() => setShowPinModal(false)}
+        />
+      )}
 
       {showSetPin && (
         <PinModal

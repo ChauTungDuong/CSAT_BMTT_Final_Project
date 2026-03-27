@@ -33,8 +33,6 @@ export class MaskingEngine {
     switch (role) {
       case Role.CUSTOMER:
         return this.maskForCustomer(value, field);
-      case Role.TELLER:
-        return this.maskForTeller(value, field);
       case Role.ADMIN:
         return this.maskForAdmin(value, field);
       default:
@@ -60,33 +58,7 @@ export class MaskingEngine {
       case 'email':
         return value.replace(/^(\w{2})\w+(@.+)$/, '$1***$2');
       case 'date_of_birth':
-        return value.replace(/^(\d{2})\/(\d{2})\/(\d{4})$/, '**/**/$3');
-      case 'address':
-        return value.split(',').slice(-2).join(',').trim();
-      default:
-        return value;
-    }
-  }
-
-  // ── TELLER (nhân viên giao dịch) ─────────────────────────────
-  private maskForTeller(value: string, field: FieldType): string {
-    switch (field) {
-      case 'phone':
-        return value.replace(/^(\d{3})\d{4}(\d{3})$/, '$1****$2');
-      case 'email':
-        return value.replace(/^(\w{2,3})\w+(@.+)$/, '$1***$2');
-      case 'cccd':
-        return this.fullMask('cccd');
-      case 'card_number':
-        return this.fullMask('card_number');
-      case 'cvv':
-        return '***';
-      case 'balance':
-        return this.balanceRange(value);
-      case 'account_number':
-        return value.replace(/^\d+(\d{4})$/, '******$1');
-      case 'date_of_birth':
-        return value.replace(/^(\d{2})\/(\d{2})\/(\d{4})$/, '**/**/$3');
+        return this.maskDateOfBirth(value);
       case 'address':
         return value.split(',').slice(-2).join(',').trim();
       default:
@@ -112,7 +84,7 @@ export class MaskingEngine {
       case 'account_number':
         return value.replace(/^\d+(\d{4})$/, '******$1');
       case 'date_of_birth':
-        return value.replace(/^(\d{2})\/(\d{2})\/(\d{4})$/, '**/**/$3');
+        return this.maskDateOfBirth(value);
       case 'address':
         return (
           value.split(',').slice(-1)[0]?.trim() || this.fullMask('address')
@@ -120,15 +92,6 @@ export class MaskingEngine {
       default:
         return value;
     }
-  }
-
-  private balanceRange(value: string): string {
-    const num = parseFloat(value.replace(/[^0-9.]/g, ''));
-    if (isNaN(num)) return '*** đ';
-    if (num < 1_000_000) return '< 1 triệu đ';
-    if (num < 10_000_000) return '1-10 triệu đ';
-    if (num < 100_000_000) return '10-100 triệu đ';
-    return '> 100 triệu đ';
   }
 
   private fullMask(field: FieldType): string {
@@ -144,5 +107,29 @@ export class MaskingEngine {
       date_of_birth: '**/**/****',
     };
     return masks[field] || '***';
+  }
+
+  private maskDateOfBirth(value: string): string {
+    const normalized = value.trim();
+
+    // dd/MM/yyyy
+    const slash = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (slash) {
+      return `**/**/${slash[3]}`;
+    }
+
+    // yyyy-MM-dd
+    const iso = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (iso) {
+      return `**/**/${iso[1]}`;
+    }
+
+    // Any other format that still contains a 4-digit year
+    const year = normalized.match(/(19|20)\d{2}/)?.[0];
+    if (year) {
+      return `**/**/${year}`;
+    }
+
+    return this.fullMask('date_of_birth');
   }
 }

@@ -12,7 +12,7 @@ if (!process.env.RUNNING_IN_DOCKER && process.env.DB_HOST === 'oracle') {
 }
 
 async function main() {
-  const password = 'Admin@123456';
+  const password = 'Password@123';
   const hash = await bcrypt.hash(password, 12);
   console.log('Generated hash:', hash);
   console.log('Hash length:', hash.length);
@@ -39,12 +39,12 @@ async function main() {
 
   // Test bcrypt compare
   const r3 = await conn.execute(
-    "SELECT PASSWORD_HASH FROM USERS WHERE USERNAME='admin'",
+    "SELECT PASSWORD_HASH FROM USERS WHERE USERNAME='admin1'",
   );
   const stored = r3.rows[0][0];
   const match = await bcrypt.compare(password, stored);
   console.log(
-    `\nBcrypt verify for admin: ${match ? '✅ MATCH' : '❌ MISMATCH'}`,
+    `\nBcrypt verify for admin1: ${match ? '✅ MATCH' : '❌ MISMATCH'}`,
   );
 
   await conn.close();

@@ -24,11 +24,11 @@ export class User {
   })
   role: string;
 
-  @Column({ name: 'FULL_NAME', length: 200, nullable: true })
-  fullName: string | null;
+  @Column({ name: 'FULL_NAME', length: 200 })
+  fullName: string;
 
-  @Column({ name: 'EMAIL', length: 200, nullable: true })
-  email: string | null;
+  @Column({ name: 'EMAIL', length: 200 })
+  email: string;
 
   @Column({
     name: 'IS_ACTIVE',

@@ -9,7 +9,7 @@ BEGIN
         object_schema       => 'SMASK_USER',
         object_name         => 'CUSTOMERS',
         column_name         => 'EMAIL',
-        policy_name         => 'redact_email_teller',
+        policy_name         => 'redact_email_admin',
         function_type       => DBMS_REDACT.PARTIAL,
         function_parameters => 'VVVFVVVVVVVVVVVVVVVVV,VV,*,3,7',
         expression          => '1=1'

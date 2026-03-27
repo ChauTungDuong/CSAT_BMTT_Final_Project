@@ -8,9 +8,11 @@ import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Customer } from './entities/customer.entity';
+import { User } from '../auth/entities/user.entity';
 import { AesService } from '../../crypto/services/aes.service';
 import { MaskingEngine, FieldType } from '../../masking/masking.engine';
 import { AuditService } from '../../audit/audit.service';
+import { MailService } from './mail.service';
 import { Role } from '../../common/types/role.enum';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
@@ -19,9 +21,11 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 export class CustomersService {
   constructor(
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
+    @InjectRepository(User) private userRepo: Repository<User>,
     private aes: AesService,
     private masking: MaskingEngine,
     private audit: AuditService,
+    private mailService: MailService,
   ) {}
 
   // ── TẠO PROFILE KHÁCH HÀNG ───────────────────────────────────
@@ -82,8 +86,7 @@ export class CustomersService {
     if (!customer) throw new NotFoundException('Không tìm thấy khách hàng');
 
     const isOwner = customer.userId === viewerId;
-    const canDecrypt =
-      isOwner || viewerRole === Role.TELLER || viewerRole === Role.ADMIN;
+    const canDecrypt = isOwner || viewerRole === Role.ADMIN;
 
     const [phone, cccd, dob, address] = canDecrypt
       ? await Promise.all([
@@ -189,6 +192,57 @@ export class CustomersService {
     return valid;
   }
 
+  // ── CÀI ĐẶT PIN (Lần Đầu) ──────────────────────────────────────
+  async setupPin(
+    customerId: string,
+    userId: string,
+    passwordStr: string,
+    newPin: string,
+    ip: string,
+  ) {
+    if (!/^\d{6}$/.test(newPin)) {
+      throw new BadRequestException('PIN phải là 6 chữ số');
+    }
+    const customer = await this.customerRepo.findOne({
+      where: { id: customerId, userId },
+    });
+    if (!customer) throw new NotFoundException('Không tìm thấy khách hàng');
+    if (customer.pinHash) {
+      throw new BadRequestException(
+        'Mã PIN đã được cài đặt. Không thể tạo lại.',
+      );
+    }
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Không tìm thấy user');
+    const validPwd = await bcrypt.compare(passwordStr, user.passwordHash);
+    if (!validPwd) {
+      await this.audit.log(
+        'PIN_SETUP_FAIL',
+        userId,
+        customerId,
+        ip,
+        'Wrong password during PIN setup',
+      );
+      throw new BadRequestException('Mật khẩu không đúng');
+    }
+
+    customer.pinHash = await bcrypt.hash(newPin, 12);
+    await this.customerRepo.save(customer);
+
+    // Gửi email
+    await this.mailService.sendPinSetupEmail(customer.email, newPin);
+
+    await this.audit.log(
+      'PIN_SETUP_SUCCESS',
+      userId,
+      customerId,
+      ip,
+      'PIN setup initially',
+    );
+    return { message: 'Cài đặt PIN thành công và đã gửi email' };
+  }
+
   // ── ĐẶT/ĐỔI PIN ──────────────────────────────────────────────
   async setPin(
     customerId: string,
@@ -227,36 +281,6 @@ export class CustomersService {
     await this.customerRepo.save(customer);
     await this.audit.log('PIN_CHANGED', userId, customerId, ip, 'PIN updated');
     return { message: 'Đổi PIN thành công' };
-  }
-
-  // ── TÌM KIẾM (cho Teller) ─────────────────────────────────────
-  async search(query: string) {
-    const results = await this.customerRepo
-      .createQueryBuilder('c')
-      .where('UPPER(c.fullName) LIKE UPPER(:q)', { q: `%${query}%` })
-      .orWhere('c.email LIKE :q', { q: `%${query}%` })
-      .select(['c.id', 'c.fullName', 'c.email'])
-      .limit(20)
-      .getMany();
-    return results.map((c) => ({
-      id: c.id,
-      fullName: c.fullName,
-      email: this.masking.mask(c.email || '', 'email', Role.TELLER),
-    }));
-  }
-
-  // ── DANH SÁCH KHÁCH HÀNG CHO TELLER (có mask) ───────────────
-  async listForTeller() {
-    const all = await this.customerRepo.find({
-      select: ['id', 'fullName', 'email'],
-      order: { createdAt: 'DESC' },
-      take: 100,
-    });
-    return all.map((c) => ({
-      id: c.id,
-      fullName: c.fullName,
-      email: this.masking.mask(c.email || '', 'email', Role.TELLER),
-    }));
   }
 
   // ── LẤY TẤT CẢ CUSTOMERS (cho Admin) ────────────────────────

@@ -36,17 +36,27 @@ export class AdminService {
           where: { userId: u.id },
         });
 
-        let phone: string | null = null;
-        if (customer?.phone) {
+        const decryptAndMask = async (
+          value: Buffer | null | undefined,
+          field: 'phone' | 'cccd' | 'date_of_birth' | 'address',
+        ): Promise<string | null> => {
+          if (!value) return null;
           try {
             const decrypted = await this.aes.decrypt(
-              this.aes.deserialize(customer.phone as Buffer),
+              this.aes.deserialize(value),
             );
-            phone = this.masking.mask(decrypted, 'phone', Role.ADMIN);
+            return this.masking.mask(decrypted, field, Role.ADMIN);
           } catch {
-            phone = null;
+            return null;
           }
-        }
+        };
+
+        const [phone, cccd, dateOfBirth, address] = await Promise.all([
+          decryptAndMask(customer?.phone, 'phone'),
+          decryptAndMask(customer?.cccd, 'cccd'),
+          decryptAndMask(customer?.dateOfBirth, 'date_of_birth'),
+          decryptAndMask(customer?.address, 'address'),
+        ]);
 
         return {
           id: u.id,
@@ -60,6 +70,9 @@ export class AdminService {
               ? this.masking.mask(u.email, 'email', Role.ADMIN)
               : null,
           phone,
+          cccd,
+          dateOfBirth,
+          address,
           createdAt: u.createdAt,
         };
       }),
@@ -91,7 +104,7 @@ export class AdminService {
     adminId: string,
     ip: string,
   ) {
-    if (!['customer', 'teller', 'admin'].includes(newRole)) {
+    if (!['customer', 'admin'].includes(newRole)) {
       throw new BadRequestException('Role không hợp lệ');
     }
     if (userId === adminId) {
@@ -143,10 +156,9 @@ export class AdminService {
   }
 
   async getSystemStats() {
-    const [totalUsers, customers, tellers, admins] = await Promise.all([
+    const [totalUsers, customers, admins] = await Promise.all([
       this.userRepo.count(),
       this.userRepo.count({ where: { role: 'customer' } }),
-      this.userRepo.count({ where: { role: 'teller' } }),
       this.userRepo.count({ where: { role: 'admin' } }),
     ]);
 
@@ -155,6 +167,6 @@ export class AdminService {
       .where('u.isActive = 0')
       .getCount();
 
-    return { totalUsers, customers, tellers, admins, inactive };
+    return { totalUsers, customers, admins, inactive };
   }
 }

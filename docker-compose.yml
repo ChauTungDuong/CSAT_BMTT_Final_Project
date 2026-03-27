@@ -46,12 +46,24 @@ services:
     container_name: bank-frontend
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "3002:443"
     depends_on:
       - backend
     volumes:
       - ./backend/ssl:/etc/nginx/ssl:ro
+
+  monitor:
+    build:
+      context: ./monitor
+      dockerfile: Dockerfile
+    container_name: bank-monitor
+    restart: unless-stopped
+    ports:
+      - "3003:80"
+    environment:
+      - VITE_BACKEND_URL=http://bank-backend:3000
+    depends_on:
+      - backend
 
 volumes:
   oracle_data:

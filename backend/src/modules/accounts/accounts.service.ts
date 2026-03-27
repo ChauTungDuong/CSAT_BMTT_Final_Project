@@ -76,41 +76,10 @@ export class AccountsService {
             isPinVerified,
           ),
           accountType: acc.accountType,
-          balance: isPinVerified
-            ? `${parseFloat(balancePlain || '0').toLocaleString('vi-VN')} đ`
-            : balanceMasked,
+          balance: `${parseFloat(balancePlain || '0').toLocaleString('vi-VN')} đ`,
           balanceMasked,
           cardNumber: cardNumberMasked,
           createdAt: acc.createdAt,
-        };
-      }),
-    );
-  }
-
-  // Teller: xem tài khoản của một customer (balance ẩn)
-  async getAccountsForTeller(customerId: string, tellerId: string, ip: string) {
-    const accounts = await this.accountRepo.find({
-      where: { customerId, isActive: 1 },
-    });
-
-    await this.audit.log('TELLER_VIEW_ACCOUNTS', tellerId, customerId, ip, '');
-
-    return Promise.all(
-      accounts.map(async (acc) => {
-        const balancePlain = await this.aes.decrypt(
-          this.aes.deserialize(acc.balance as Buffer),
-        );
-        return {
-          id: acc.id,
-          accountNumber: this.masking.mask(
-            acc.accountNumber,
-            'account_number',
-            Role.TELLER,
-          ),
-          accountType: acc.accountType,
-          balance: balancePlain
-            ? this.masking.mask(balancePlain, 'balance', Role.TELLER)
-            : '*** đ',
         };
       }),
     );

@@ -24,6 +24,10 @@ export function UserProfilePage() {
   const [form, setForm] = useState({ fullName: "", email: "" });
   const [saveError, setSaveError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState("");
+  const [adminPin, setAdminPin] = useState("");
+  const [adminPinConfirm, setAdminPinConfirm] = useState("");
+  const [pinMsg, setPinMsg] = useState("");
+  const [pinErr, setPinErr] = useState("");
 
   const homeRoute = user?.role === "admin" ? "/admin" : "/dashboard";
 
@@ -52,6 +56,30 @@ export function UserProfilePage() {
       setSaveError(
         Array.isArray(msg) ? msg.join(", ") : (msg ?? "Lỗi lưu thông tin"),
       );
+    }
+  };
+
+  const handleSetAdminPin = async (e: FormEvent) => {
+    e.preventDefault();
+    setPinErr("");
+    setPinMsg("");
+
+    if (!/^\d{6}$/.test(adminPin)) {
+      setPinErr("PIN admin phải là 6 chữ số.");
+      return;
+    }
+    if (adminPin !== adminPinConfirm) {
+      setPinErr("PIN xác nhận không khớp.");
+      return;
+    }
+
+    try {
+      await api.post("/admin/security/set-pin", { pin: adminPin });
+      setAdminPin("");
+      setAdminPinConfirm("");
+      setPinMsg("Đã cập nhật PIN bảo mật admin.");
+    } catch (err: any) {
+      setPinErr(err?.response?.data?.message ?? "Không thể cập nhật PIN admin");
     }
   };
 
@@ -171,6 +199,45 @@ export function UserProfilePage() {
                 </dd>
               </div>
             </dl>
+          )}
+
+          {profile?.role === "admin" && (
+            <div className="mt-8 pt-6 border-t">
+              <h3 className="font-semibold text-gray-800 mb-2">
+                PIN bảo mật admin
+              </h3>
+              <p className="text-sm text-gray-500 mb-4">
+                PIN này dùng cho thao tác nhạy cảm như khóa/mở khóa tài khoản,
+                reset mật khẩu và xem thông tin chi tiết người dùng.
+              </p>
+
+              <form onSubmit={handleSetAdminPin} className="space-y-3">
+                <input
+                  type="password"
+                  maxLength={6}
+                  value={adminPin}
+                  onChange={(e) => setAdminPin(e.target.value)}
+                  placeholder="Nhập PIN admin 6 số"
+                  className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+                <input
+                  type="password"
+                  maxLength={6}
+                  value={adminPinConfirm}
+                  onChange={(e) => setAdminPinConfirm(e.target.value)}
+                  placeholder="Nhập lại PIN admin"
+                  className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+                {pinErr && <p className="text-sm text-red-600">{pinErr}</p>}
+                {pinMsg && <p className="text-sm text-green-600">{pinMsg}</p>}
+                <button
+                  type="submit"
+                  className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-gray-900"
+                >
+                  Lưu PIN admin
+                </button>
+              </form>
+            </div>
           )}
         </div>
       </div>

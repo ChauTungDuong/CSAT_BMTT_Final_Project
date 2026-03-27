@@ -4,6 +4,7 @@ import {
   Route,
   Navigate,
   Outlet,
+  useLocation,
 } from "react-router-dom";
 import { useAuth } from "./contexts/AuthContext";
 import Navbar from "./components/common/Navbar";
@@ -21,11 +22,13 @@ import { CardsPage } from "./pages/customer/CardsPage";
 import { AdminDashboard } from "./pages/admin/AdminDashboard";
 import { AuditPage } from "./pages/admin/AuditPage";
 import { UserProfilePage } from "./pages/admin/UserProfilePage";
+import ForceChangePasswordPage from "./pages/ForceChangePasswordPage";
 
 // ---------- Guards ----------
 
 function RequireAuth({ allowedRoles }: { allowedRoles?: string[] }) {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
   if (isLoading)
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-400">
@@ -33,6 +36,12 @@ function RequireAuth({ allowedRoles }: { allowedRoles?: string[] }) {
       </div>
     );
   if (!user) return <Navigate to="/login" replace />;
+  if (
+    user.forcePasswordChange &&
+    location.pathname !== "/force-change-password"
+  ) {
+    return <Navigate to="/force-change-password" replace />;
+  }
   if (allowedRoles && !allowedRoles.includes(user.role))
     return <Navigate to="/" replace />;
   return <Outlet />;
@@ -72,6 +81,13 @@ export default function App() {
 
         {/* Authenticated layout */}
         <Route element={<AppLayout />}>
+          <Route element={<RequireAuth />}>
+            <Route
+              path="/force-change-password"
+              element={<ForceChangePasswordPage />}
+            />
+          </Route>
+
           {/* Customer */}
           <Route element={<RequireAuth allowedRoles={["customer"]} />}>
             <Route path="/dashboard" element={<DashboardPage />} />

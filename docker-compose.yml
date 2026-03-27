@@ -13,9 +13,12 @@ services:
       APP_USER: ${DB_USER}
       APP_USER_PASSWORD: ${DB_PASSWORD}
     volumes:
+      - ./backend/sql/00_reset.sql:/container-entrypoint-initdb.d/00_reset.sql
       - oracle_data:/opt/oracle/oradata
       - ./backend/sql/01_schema.sql:/container-entrypoint-initdb.d/01_schema.sql
       - ./backend/sql/02_seed.sql:/container-entrypoint-initdb.d/02_seed.sql
+      - ./backend/sql/04_migrate_user_profile.sql:/container-entrypoint-initdb.d/04_migrate_user_profile.sql
+      - ./backend/sql/05_security_hardening.sql:/container-entrypoint-initdb.d/05_security_hardening.sql
     healthcheck:
       test: ["CMD", "healthcheck.sh"]
       interval: 30s

@@ -1,14 +1,30 @@
-import { useState, FormEvent, useRef, KeyboardEvent } from "react";
+import { useState, FormEvent, useRef, KeyboardEvent, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "../../api/client";
 import { PinModal } from "../../components/common/PinModal";
-import { MaskedField } from "../../components/common/MaskedField";
 import type { Customer } from "../../types";
 
 interface UpdateProfileForm {
   fullName: string;
   email: string;
+}
+
+function ProfileInfoCard({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
+      <p className="mt-1 text-sm font-medium text-slate-800 break-words">
+        {value && value.trim().length > 0 ? value : "--"}
+      </p>
+    </div>
+  );
 }
 
 // Component nhập PIN (6 ô) dùng nội bộ cho việc ĐÔI/ĐẶT PIN
@@ -60,6 +76,8 @@ export function ProfilePage() {
   const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [pinVerified, setPinVerified] = useState(false);
+  const [viewToken, setViewToken] = useState("");
+  const [viewExpiresAt, setViewExpiresAt] = useState<string | null>(null);
   const [showPinModal, setShowPinModal] = useState(false);
   const [showSetPin, setShowSetPin] = useState(false);
   const [showChangePinForm, setShowChangePinForm] = useState(false);
@@ -74,15 +92,39 @@ export function ProfilePage() {
   const [saveError, setSaveError] = useState("");
 
   const { data: profile, refetch } = useQuery<Customer>({
-    queryKey: ["my-profile", pinVerified],
+    queryKey: ["my-profile", pinVerified, viewToken],
     queryFn: async () => {
-      const { data } = await api.get(`/customers/me${pinVerified ? "?pinVerified=true" : ""}`);
+      const query =
+        pinVerified && viewToken
+          ? `?pinVerified=true&viewToken=${encodeURIComponent(viewToken)}`
+          : "";
+      const { data } = await api.get(`/customers/me${query}`);
       return data;
     },
     onSuccess: (data: Customer) => {
       setForm({ fullName: data.fullName ?? "", email: data.email ?? "" });
     },
   } as any);
+
+  useEffect(() => {
+    if (!pinVerified || !viewExpiresAt) return;
+    const remain = new Date(viewExpiresAt).getTime() - Date.now();
+    if (remain <= 0) {
+      setPinVerified(false);
+      setViewToken("");
+      setViewExpiresAt(null);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setPinVerified(false);
+      setViewToken("");
+      setViewExpiresAt(null);
+      refetch();
+    }, remain);
+
+    return () => clearTimeout(timer);
+  }, [pinVerified, viewExpiresAt, refetch]);
 
   const handleSave = async (e: FormEvent) => {
     e.preventDefault();
@@ -100,9 +142,14 @@ export function ProfilePage() {
     }
   };
 
-  const handlePinSuccess = () => {
+  const handlePinSuccess = (payload?: any) => {
+    if (payload?.viewToken) {
+      setViewToken(payload.viewToken);
+      setViewExpiresAt(payload.expiresAt ?? null);
+    }
     setPinVerified(true);
     setShowPinModal(false);
+    refetch();
   };
 
   // Đặt PIN lần đầu (chưa có PIN)
@@ -144,28 +191,39 @@ export function ProfilePage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-slate-50">
       <div className="max-w-2xl mx-auto px-4 py-8">
-        <div className="flex items-center gap-3 mb-6">
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="text-blue-600 hover:underline text-sm"
-          >
-            ← Quay lại
-          </button>
-          <h1 className="text-xl font-bold text-gray-800">Hồ sơ cá nhân</h1>
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-bold text-slate-800">
+                Hồ sơ cá nhân
+              </h1>
+              <p className="text-sm text-slate-500 mt-1">
+                Quản lý thông tin cá nhân và thiết lập bảo mật PIN.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate("/dashboard")}
+              className="text-sm border border-slate-300 px-3 py-2 rounded-lg text-slate-700 hover:bg-slate-50"
+            >
+              Quay lại
+            </button>
+          </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm p-6 mb-4">
-          <div className="flex justify-between items-center mb-4 border-b pb-2">
-            <h2 className="font-semibold text-lg text-blue-800">Thông tin cơ bản</h2>
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-4">
+          <div className="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
+            <h2 className="font-semibold text-lg text-slate-800">
+              Thông tin cơ bản
+            </h2>
             <div className="flex gap-4 items-center">
               {!pinVerified && (
                 <button
                   onClick={() => setShowPinModal(true)}
-                  className="text-sm font-medium text-blue-600 hover:bg-blue-50 px-3 py-1 rounded"
+                  className="text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg"
                 >
-                  🔑 Xem chi tiết
+                  Xác thực PIN để xem đầy đủ
                 </button>
               )}
               {!editing && (
@@ -230,21 +288,43 @@ export function ProfilePage() {
               </div>
             </form>
           ) : (
-            <div className="grid grid-cols-2 gap-x-8 pt-2">
-              <MaskedField label="Họ và tên" value={profile?.fullName} isMasked={false} />
-              <MaskedField label="Email" value={profile?.email} isMasked={!pinVerified} />
-              <MaskedField label="Số điện thoại" value={profile?.phone} isMasked={!pinVerified} />
-              <MaskedField label="CCCD" value={profile?.cccd} isMasked={!pinVerified} />
-              <MaskedField label="Ngày sinh" value={profile?.dateOfBirth} isMasked={!pinVerified} />
-              <MaskedField label="Địa chỉ" value={profile?.address} isMasked={!pinVerified} />
+            <div className="pt-2">
+              <div className="mb-3 text-xs text-slate-500">
+                Trạng thái hiển thị:
+                <span
+                  className={`ml-2 inline-flex items-center rounded-full px-2 py-0.5 font-medium ${
+                    pinVerified
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-amber-100 text-amber-700"
+                  }`}
+                >
+                  {pinVerified
+                    ? "Đang hiển thị đầy đủ"
+                    : "Đang che dữ liệu nhạy cảm"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <ProfileInfoCard label="Họ và tên" value={profile?.fullName} />
+                <ProfileInfoCard label="Email" value={profile?.email} />
+                <ProfileInfoCard label="Số điện thoại" value={profile?.phone} />
+                <ProfileInfoCard label="CCCD" value={profile?.cccd} />
+                <ProfileInfoCard
+                  label="Ngày sinh"
+                  value={profile?.dateOfBirth}
+                />
+                <div className="md:col-span-2">
+                  <ProfileInfoCard label="Địa chỉ" value={profile?.address} />
+                </div>
+              </div>
             </div>
           )}
         </div>
 
         {/* PIN */}
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <h2 className="font-semibold mb-2">PIN bảo mật</h2>
-          <p className="text-sm text-gray-500 mb-4">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+          <h2 className="font-semibold text-slate-800 mb-2">PIN bảo mật</h2>
+          <p className="text-sm text-slate-500 mb-4">
             PIN 6 chữ số bảo vệ quyền xem thông tin nhạy cảm.
           </p>
           {pinSuccess && (

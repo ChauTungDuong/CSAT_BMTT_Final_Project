@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "../../api/client";
@@ -17,6 +17,19 @@ export function CardsPage() {
     cvv: string;
     expiry: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (!showRevealModal || !revealedCard) return;
+    const timer = setTimeout(
+      () => {
+        setShowRevealModal(false);
+        setRevealedCard(null);
+      },
+      2 * 60 * 1000,
+    );
+
+    return () => clearTimeout(timer);
+  }, [showRevealModal, revealedCard]);
 
   const { data: accounts } = useQuery<Account[]>({
     queryKey: ["my-accounts"],
@@ -261,12 +274,18 @@ export function CardsPage() {
 
             <div className="mt-6 flex justify-end">
               <button
-                onClick={() => setShowRevealModal(false)}
+                onClick={() => {
+                  setShowRevealModal(false);
+                  setRevealedCard(null);
+                }}
                 className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
               >
                 Đóng
               </button>
             </div>
+            <p className="mt-3 text-xs text-amber-600">
+              Thông tin thẻ sẽ tự ẩn sau 2 phút.
+            </p>
           </div>
         </div>
       )}

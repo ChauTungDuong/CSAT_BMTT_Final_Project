@@ -10,12 +10,14 @@ import api from "../api/client";
 interface AuthUser {
   accessToken: string;
   role: "customer" | "admin";
+  forcePasswordChange?: boolean;
 }
 
 interface AuthContextType {
   user: AuthUser | null;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  clearForcePasswordChange: () => void;
   isLoading: boolean;
 }
 
@@ -54,8 +56,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.href = "/login";
   };
 
+  const clearForcePasswordChange = () => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, forcePasswordChange: false };
+      sessionStorage.setItem("auth", JSON.stringify(next));
+      return next;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+    <AuthContext.Provider
+      value={{ user, login, logout, clearForcePasswordChange, isLoading }}
+    >
       {children}
     </AuthContext.Provider>
   );

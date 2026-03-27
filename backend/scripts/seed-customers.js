@@ -10,11 +10,54 @@ if (!process.env.RUNNING_IN_DOCKER && process.env.DB_HOST === 'oracle') {
   console.log('ℹ️  Chạy ngoài Docker — đổi DB_HOST từ "oracle" → "localhost"');
 }
 const crypto = require('crypto');
-const bcrypt = require('bcryptjs');
 const oracledb = require('oracledb');
 
 const masterKey = Buffer.from(process.env.AES_MASTER_KEY, 'hex');
 const hmacSecret = Buffer.from(process.env.HMAC_SECRET, 'hex');
+
+function hmacSha256(key, data) {
+  return crypto.createHmac('sha256', key).update(data).digest();
+}
+
+function pbkdf2Manual(secret, salt, iterations, dkLen) {
+  const hLen = 32;
+  const l = Math.ceil(dkLen / hLen);
+  const out = Buffer.alloc(l * hLen);
+  const key = Buffer.from(secret, 'utf8');
+
+  for (let block = 1; block <= l; block++) {
+    const intBlock = Buffer.alloc(4);
+    intBlock.writeUInt32BE(block, 0);
+
+    let u = hmacSha256(key, Buffer.concat([salt, intBlock]));
+    const t = Buffer.from(u);
+
+    for (let c = 2; c <= iterations; c++) {
+      u = hmacSha256(key, u);
+      for (let j = 0; j < t.length; j++) {
+        t[j] ^= u[j];
+      }
+    }
+
+    t.copy(out, (block - 1) * hLen);
+  }
+
+  return out.subarray(0, dkLen);
+}
+
+function hashSecret(secret, purpose) {
+  const iterations = purpose === 'pin' ? 220000 : 310000;
+  const dkLen = 32;
+  const salt = crypto.randomBytes(16);
+  const derived = pbkdf2Manual(secret, salt, iterations, dkLen);
+  return [
+    'pbkdf2',
+    'sha256',
+    String(iterations),
+    salt.toString('hex'),
+    derived.toString('hex'),
+  ].join('$');
+}
 
 function encrypt(plaintext) {
   const iv = crypto.randomBytes(12);
@@ -50,11 +93,32 @@ async function seed() {
     connectString: `${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_SERVICE}`,
   });
 
-  const pinHash = await bcrypt.hash('123456', 12);
+  const pinHash = hashSecret('123456', 'pin');
+  const userPasswordHash = hashSecret('Password@123', 'password');
+
+  const admins = [
+    {
+      userId: 'USR-ADMIN-001',
+      username: 'admin1',
+      fullName: 'System Admin 1',
+      email: 'admin1@bank.local',
+      role: 'admin',
+      adminPinHash: hashSecret('123456', 'pin'),
+    },
+    {
+      userId: 'USR-ADMIN-002',
+      username: 'admin2',
+      fullName: 'System Admin 2',
+      email: 'admin2@bank.local',
+      role: 'admin',
+      adminPinHash: hashSecret('123456', 'pin'),
+    },
+  ];
 
   const customers = [
     {
       userId: 'USR-CUST-001',
+      username: 'customer01',
       fullName: 'Nguyen Van An',
       email: 'customer01@bank.local',
       phone: '0901111111',
@@ -66,6 +130,7 @@ async function seed() {
     },
     {
       userId: 'USR-CUST-002',
+      username: 'customer02',
       fullName: 'Tran Thi Binh',
       email: 'customer02@bank.local',
       phone: '0901111112',
@@ -77,6 +142,7 @@ async function seed() {
     },
     {
       userId: 'USR-CUST-003',
+      username: 'customer03',
       fullName: 'Le Hoang Cuong',
       email: 'customer03@bank.local',
       phone: '0901111113',
@@ -88,6 +154,7 @@ async function seed() {
     },
     {
       userId: 'USR-CUST-004',
+      username: 'customer04',
       fullName: 'Pham Thi Dung',
       email: 'customer04@bank.local',
       phone: '0901111114',
@@ -99,6 +166,7 @@ async function seed() {
     },
     {
       userId: 'USR-CUST-005',
+      username: 'customer05',
       fullName: 'Vo Minh Duc',
       email: 'customer05@bank.local',
       phone: '0901111115',
@@ -110,6 +178,7 @@ async function seed() {
     },
     {
       userId: 'USR-CUST-006',
+      username: 'customer06',
       fullName: 'Bui Thu Ha',
       email: 'customer06@bank.local',
       phone: '0901111116',
@@ -121,6 +190,7 @@ async function seed() {
     },
     {
       userId: 'USR-CUST-007',
+      username: 'customer07',
       fullName: 'Dang Quang Hung',
       email: 'customer07@bank.local',
       phone: '0901111117',
@@ -132,6 +202,7 @@ async function seed() {
     },
     {
       userId: 'USR-CUST-008',
+      username: 'customer08',
       fullName: 'Nguyen Khanh Linh',
       email: 'customer08@bank.local',
       phone: '0901111118',
@@ -143,6 +214,7 @@ async function seed() {
     },
     {
       userId: 'USR-CUST-009',
+      username: 'customer09',
       fullName: 'Do Gia Minh',
       email: 'customer09@bank.local',
       phone: '0901111119',
@@ -154,6 +226,7 @@ async function seed() {
     },
     {
       userId: 'USR-CUST-010',
+      username: 'customer10',
       fullName: 'Pham Quynh Nhu',
       email: 'customer10@bank.local',
       phone: '0901111120',
@@ -165,14 +238,97 @@ async function seed() {
     },
   ];
 
+  for (const admin of admins) {
+    const existing = await conn.execute(`SELECT ID FROM USERS WHERE ID = :id`, {
+      id: admin.userId,
+    });
+
+    if ((existing.rows || []).length > 0) {
+      await conn.execute(
+        `UPDATE USERS
+         SET USERNAME = :username,
+             PASSWORD_HASH = :passwordHash,
+             FULL_NAME = :fullName,
+             EMAIL = :email,
+             ROLE = :role,
+             IS_ACTIVE = 1,
+             ADMIN_PIN_HASH = :adminPinHash,
+             FORCE_PASSWORD_CHANGE = 0,
+             UPDATED_AT = SYSTIMESTAMP
+         WHERE ID = :id`,
+        {
+          id: admin.userId,
+          username: admin.username,
+          passwordHash: userPasswordHash,
+          fullName: admin.fullName,
+          email: admin.email,
+          role: admin.role,
+          adminPinHash: admin.adminPinHash,
+        },
+      );
+      console.log(`♻️  Updated admin user: ${admin.username}`);
+    } else {
+      await conn.execute(
+        `INSERT INTO USERS (
+            ID, USERNAME, PASSWORD_HASH, FULL_NAME, EMAIL, ROLE, IS_ACTIVE, ADMIN_PIN_HASH, FORCE_PASSWORD_CHANGE
+         ) VALUES (
+            :id, :username, :passwordHash, :fullName, :email, :role, 1, :adminPinHash, 0
+         )`,
+        {
+          id: admin.userId,
+          username: admin.username,
+          passwordHash: userPasswordHash,
+          fullName: admin.fullName,
+          email: admin.email,
+          role: admin.role,
+          adminPinHash: admin.adminPinHash,
+        },
+      );
+      console.log(`✅ Created admin user: ${admin.username}`);
+    }
+  }
+
   for (const c of customers) {
-    const userExists = await conn.execute(
-      `SELECT ID FROM USERS WHERE ID = :userId`,
-      { userId: c.userId },
+    const existingUser = await conn.execute(
+      `SELECT ID FROM USERS WHERE ID = :id`,
+      { id: c.userId },
     );
-    if ((userExists.rows || []).length === 0) {
-      console.log(`⚠️  Bỏ qua ${c.userId}: chưa có user trong USERS`);
-      continue;
+
+    if ((existingUser.rows || []).length > 0) {
+      await conn.execute(
+        `UPDATE USERS
+         SET USERNAME = :username,
+             PASSWORD_HASH = :passwordHash,
+             FULL_NAME = :fullName,
+             EMAIL = :email,
+             ROLE = 'customer',
+             IS_ACTIVE = 1,
+             FORCE_PASSWORD_CHANGE = 0,
+             UPDATED_AT = SYSTIMESTAMP
+         WHERE ID = :id`,
+        {
+          id: c.userId,
+          username: c.username,
+          passwordHash: userPasswordHash,
+          fullName: c.fullName,
+          email: c.email,
+        },
+      );
+    } else {
+      await conn.execute(
+        `INSERT INTO USERS (
+            ID, USERNAME, PASSWORD_HASH, FULL_NAME, EMAIL, ROLE, IS_ACTIVE, FORCE_PASSWORD_CHANGE
+         ) VALUES (
+            :id, :username, :passwordHash, :fullName, :email, 'customer', 1, 0
+         )`,
+        {
+          id: c.userId,
+          username: c.username,
+          passwordHash: userPasswordHash,
+          fullName: c.fullName,
+          email: c.email,
+        },
+      );
     }
 
     const existingCustomer = await conn.execute(

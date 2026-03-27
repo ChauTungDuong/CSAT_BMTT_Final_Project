@@ -2,10 +2,10 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Customer } from './entities/customer.entity';
 import { User } from '../auth/entities/user.entity';
@@ -16,9 +16,15 @@ import { MailService } from './mail.service';
 import { Role } from '../../common/types/role.enum';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
+import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
 
 @Injectable()
 export class CustomersService {
+  private readonly pinViewSessions = new Map<
+    string,
+    { token: string; expiresAt: number }
+  >();
+
   constructor(
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
     @InjectRepository(User) private userRepo: Repository<User>,
@@ -26,6 +32,7 @@ export class CustomersService {
     private masking: MaskingEngine,
     private audit: AuditService,
     private mailService: MailService,
+    private pbkdf2: Pbkdf2Service,
   ) {}
 
   // ── TẠO PROFILE KHÁCH HÀNG ───────────────────────────────────
@@ -40,7 +47,7 @@ export class CustomersService {
       this.aes.encrypt(dto.address),
     ]);
 
-    const pinHash = dto.pin ? await bcrypt.hash(dto.pin, 12) : null;
+    const pinHash = dto.pin ? this.pbkdf2.hashSecret(dto.pin, 'pin') : null;
     const id = `CUST-${crypto.randomUUID().toUpperCase().slice(0, 8)}`;
 
     const customer = this.customerRepo.create({
@@ -79,6 +86,7 @@ export class CustomersService {
     viewerRole: Role,
     isPinVerified: boolean,
     ip: string,
+    viewToken?: string,
   ) {
     const customer = await this.customerRepo.findOne({
       where: { id: customerId },
@@ -100,15 +108,10 @@ export class CustomersService {
       : [null, null, null, null];
 
     const roleToUse = isOwner ? Role.CUSTOMER : viewerRole;
-    const pinMode = isOwner && isPinVerified;
-
-    await this.audit.log(
-      'VIEW_PROFILE',
-      viewerId,
-      customerId,
-      ip,
-      `Role: ${viewerRole}, PinVerified: ${isPinVerified}`,
-    );
+    const pinMode =
+      isOwner &&
+      isPinVerified &&
+      this.isPinViewSessionValid(viewerId, viewToken);
 
     return {
       id: customer.id,
@@ -175,21 +178,123 @@ export class CustomersService {
     userId: string,
     pin: string,
     ip: string,
-  ): Promise<boolean> {
+  ): Promise<{
+    verified: boolean;
+    locked: boolean;
+    remainingAttempts: number;
+    message: string;
+  }> {
     const customer = await this.customerRepo.findOne({
       where: { id: customerId, userId },
     });
-    if (!customer || !customer.pinHash) return false;
+    if (!customer || !customer.pinHash) {
+      return {
+        verified: false,
+        locked: false,
+        remainingAttempts: 0,
+        message: 'PIN chưa được thiết lập',
+      };
+    }
 
-    const valid = await bcrypt.compare(pin, customer.pinHash);
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user || !user.isActive || customer.pinLocked) {
+      await this.audit.log(
+        'PIN_VERIFY_LOCKED',
+        userId,
+        customerId,
+        ip,
+        'PIN verify blocked because account is locked',
+      );
+      throw new ForbiddenException({
+        message: 'Tài khoản đã bị khóa vì nhập sai PIN quá 5 lần',
+        locked: true,
+        remainingAttempts: 0,
+      });
+    }
+
+    const valid = this.pbkdf2.verifySecret(pin, customer.pinHash);
+    if (!valid) {
+      customer.pinFailedAttempts = (customer.pinFailedAttempts || 0) + 1;
+      const remainingAttempts = Math.max(0, 5 - customer.pinFailedAttempts);
+
+      if (customer.pinFailedAttempts >= 5) {
+        customer.pinLocked = 1;
+        customer.pinLockedAt = new Date();
+        user.isActive = 0;
+        await this.userRepo.save(user);
+
+        await this.audit.log(
+          'PIN_LOCKED',
+          userId,
+          customerId,
+          ip,
+          'Account locked after 5 wrong PIN attempts',
+        );
+      }
+
+      await this.customerRepo.save(customer);
+
+      await this.audit.log(
+        'PIN_VERIFY_FAIL',
+        userId,
+        customerId,
+        ip,
+        `Wrong PIN attempt ${customer.pinFailedAttempts}/5`,
+      );
+
+      return {
+        verified: false,
+        locked: customer.pinFailedAttempts >= 5,
+        remainingAttempts,
+        message:
+          customer.pinFailedAttempts >= 5
+            ? 'Tài khoản đã bị khóa vì nhập sai PIN quá 5 lần'
+            : `PIN không đúng. Bạn còn ${remainingAttempts} lần thử.`,
+      };
+    } else if (customer.pinFailedAttempts > 0 || customer.pinLocked) {
+      customer.pinFailedAttempts = 0;
+      customer.pinLocked = 0;
+      customer.pinLockedAt = null;
+      await this.customerRepo.save(customer);
+    }
+
     await this.audit.log(
-      valid ? 'PIN_VERIFY_SUCCESS' : 'PIN_VERIFY_FAIL',
+      'PIN_VERIFY_SUCCESS',
       userId,
       customerId,
       ip,
-      valid ? 'PIN verified' : 'Wrong PIN',
+      'PIN verified',
     );
-    return valid;
+    return {
+      verified: true,
+      locked: false,
+      remainingAttempts: 5,
+      message: 'PIN verified',
+    };
+  }
+
+  createPinViewSession(userId: string) {
+    const token = crypto.randomUUID();
+    const expiresAt = Date.now() + 2 * 60 * 1000;
+    this.pinViewSessions.set(userId, { token, expiresAt });
+
+    return {
+      viewToken: token,
+      expiresAt: new Date(expiresAt).toISOString(),
+      ttlSeconds: 120,
+    };
+  }
+
+  private isPinViewSessionValid(userId: string, token?: string) {
+    if (!token) return false;
+    const session = this.pinViewSessions.get(userId);
+    if (!session) return false;
+    if (session.token !== token) return false;
+    if (Date.now() > session.expiresAt) {
+      this.pinViewSessions.delete(userId);
+      return false;
+    }
+    return true;
   }
 
   // ── CÀI ĐẶT PIN (Lần Đầu) ──────────────────────────────────────
@@ -215,7 +320,7 @@ export class CustomersService {
 
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Không tìm thấy user');
-    const validPwd = await bcrypt.compare(passwordStr, user.passwordHash);
+    const validPwd = this.pbkdf2.verifySecret(passwordStr, user.passwordHash);
     if (!validPwd) {
       await this.audit.log(
         'PIN_SETUP_FAIL',
@@ -227,7 +332,10 @@ export class CustomersService {
       throw new BadRequestException('Mật khẩu không đúng');
     }
 
-    customer.pinHash = await bcrypt.hash(newPin, 12);
+    customer.pinHash = this.pbkdf2.hashSecret(newPin, 'pin');
+    customer.pinFailedAttempts = 0;
+    customer.pinLocked = 0;
+    customer.pinLockedAt = null;
     await this.customerRepo.save(customer);
 
     // Gửi email
@@ -264,7 +372,7 @@ export class CustomersService {
       if (!oldPin) {
         throw new BadRequestException('Vui lòng nhập PIN cũ để đổi PIN mới');
       }
-      const valid = await bcrypt.compare(oldPin, customer.pinHash);
+      const valid = this.pbkdf2.verifySecret(oldPin, customer.pinHash);
       if (!valid) {
         await this.audit.log(
           'PIN_CHANGE_FAIL',
@@ -277,7 +385,10 @@ export class CustomersService {
       }
     }
 
-    customer.pinHash = await bcrypt.hash(newPin, 12);
+    customer.pinHash = this.pbkdf2.hashSecret(newPin, 'pin');
+    customer.pinFailedAttempts = 0;
+    customer.pinLocked = 0;
+    customer.pinLockedAt = null;
     await this.customerRepo.save(customer);
     await this.audit.log('PIN_CHANGED', userId, customerId, ip, 'PIN updated');
     return { message: 'Đổi PIN thành công' };

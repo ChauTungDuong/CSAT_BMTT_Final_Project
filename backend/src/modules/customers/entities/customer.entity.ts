@@ -35,6 +35,27 @@ export class Customer {
   @Column({ name: 'PIN_HASH', length: 255, nullable: true })
   pinHash: string | null;
 
+  @Column({
+    name: 'PIN_FAILED_ATTEMPTS',
+    type: 'decimal',
+    precision: 2,
+    scale: 0,
+    default: 0,
+  })
+  pinFailedAttempts: number;
+
+  @Column({
+    name: 'PIN_LOCKED',
+    type: 'decimal',
+    precision: 1,
+    scale: 0,
+    default: 0,
+  })
+  pinLocked: number;
+
+  @Column({ name: 'PIN_LOCKED_AT', type: 'timestamp', nullable: true })
+  pinLockedAt: Date | null;
+
   @CreateDateColumn({ name: 'CREATED_AT' })
   createdAt: Date;
 

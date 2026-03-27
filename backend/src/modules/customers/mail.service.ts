@@ -32,4 +32,23 @@ export class MailService {
       this.logger.error(`Lỗi gửi email: ${(error as Error).message}`);
     }
   }
+
+  async sendTemporaryPasswordEmail(to: string, temporaryPassword: string) {
+    const mailOptions = {
+      from: this.configService.get<string>('MAIL_USER'),
+      to,
+      subject: 'Mật khẩu tạm thời đăng nhập hệ thống',
+      text: `Mật khẩu tạm thời của bạn là: ${temporaryPassword}. Vui lòng đăng nhập và đổi mật khẩu ngay lập tức.`,
+    };
+
+    try {
+      await this.transporter.sendMail(mailOptions);
+      this.logger.log(`Đã gửi mật khẩu tạm thời đến ${to}`);
+    } catch (error) {
+      this.logger.error(
+        `Lỗi gửi email mật khẩu tạm: ${(error as Error).message}`,
+      );
+      throw error;
+    }
+  }
 }

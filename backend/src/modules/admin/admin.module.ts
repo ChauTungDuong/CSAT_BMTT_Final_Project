@@ -7,6 +7,7 @@ import { AdminController } from './admin.controller';
 import { AuditModule } from '../../audit/audit.module';
 import { MaskingModule } from '../../masking/masking.module';
 import { CryptoModule } from '../../crypto/crypto.module';
+import { MailService } from '../customers/mail.service';
 
 @Module({
   imports: [
@@ -15,7 +16,7 @@ import { CryptoModule } from '../../crypto/crypto.module';
     MaskingModule,
     CryptoModule,
   ],
-  providers: [AdminService],
+  providers: [AdminService, MailService],
   controllers: [AdminController],
 })
 export class AdminModule {}

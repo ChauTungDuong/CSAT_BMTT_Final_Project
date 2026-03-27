@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -11,15 +12,30 @@ import { AuditService } from '../../audit/audit.service';
 import { MaskingEngine } from '../../masking/masking.engine';
 import { AesService } from '../../crypto/services/aes.service';
 import { Role } from '../../common/types/role.enum';
+import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
+import { MailService } from '../customers/mail.service';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class AdminService {
+  private readonly adminViewSessions = new Map<
+    string,
+    {
+      adminId: string;
+      targetUserId: string;
+      reason: string;
+      expiresAt: number;
+    }
+  >();
+
   constructor(
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
     private audit: AuditService,
     private masking: MaskingEngine,
     private aes: AesService,
+    private pbkdf2: Pbkdf2Service,
+    private mailService: MailService,
   ) {}
 
   async getUsers(page: number, limit: number) {
@@ -86,14 +102,37 @@ export class AdminService {
     isActive: boolean,
     adminId: string,
     ip: string,
+    adminPin: string,
+    reason: string,
   ) {
+    if (!reason?.trim()) {
+      throw new BadRequestException('Phải nhập lý do khóa/mở khóa');
+    }
+
+    await this.verifyAdminPin(adminId, adminPin);
+
+    const target = await this.userRepo.findOne({ where: { id: userId } });
+    if (!target) throw new NotFoundException('Không tìm thấy người dùng');
+
     await this.userRepo.update(userId, { isActive: isActive ? 1 : 0 });
+
+    // Nếu mở khóa thì reset bộ đếm PIN sai
+    if (isActive) {
+      const customer = await this.customerRepo.findOne({ where: { userId } });
+      if (customer) {
+        customer.pinFailedAttempts = 0;
+        customer.pinLocked = 0;
+        customer.pinLockedAt = null;
+        await this.customerRepo.save(customer);
+      }
+    }
+
     await this.audit.log(
       isActive ? 'ADMIN_ACTIVATE_USER' : 'ADMIN_DEACTIVATE_USER',
       adminId,
       userId,
       ip,
-      `isActive: ${isActive}`,
+      `isActive: ${isActive}, reason: ${reason}`,
     );
     return { message: `Tài khoản đã được ${isActive ? 'mở khoá' : 'khoá'}` };
   }
@@ -122,28 +161,76 @@ export class AdminService {
   }
 
   async deleteUser(userId: string, adminId: string, ip: string) {
-    if (userId === adminId) {
-      throw new BadRequestException('Không thể xoá tài khoản của chính mình');
-    }
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
-
-    const customer = await this.customerRepo.findOne({ where: { userId } });
-    if (customer) {
-      throw new BadRequestException(
-        'Không thể xoá người dùng có hồ sơ khách hàng. Hãy khoá tài khoản thay thế.',
-      );
-    }
-
-    await this.userRepo.delete(userId);
     await this.audit.log(
-      'ADMIN_DELETE_USER',
+      'ADMIN_DELETE_USER_BLOCKED',
       adminId,
       userId,
       ip,
-      `Deleted: ${user.username}`,
+      'Delete user action is disabled by security policy',
     );
-    return { message: 'Đã xoá người dùng' };
+    throw new ForbiddenException(
+      'Chính sách hiện tại không cho phép xóa tài khoản người dùng',
+    );
+  }
+
+  async setAdminSecurityPin(adminId: string, pin: string, ip: string) {
+    if (!/^\d{6}$/.test(pin)) {
+      throw new BadRequestException('PIN admin phải là 6 chữ số');
+    }
+
+    const admin = await this.userRepo.findOne({ where: { id: adminId } });
+    if (!admin || admin.role !== 'admin') {
+      throw new ForbiddenException('Không có quyền thực hiện thao tác này');
+    }
+
+    admin.adminPinHash = this.pbkdf2.hashSecret(pin, 'pin');
+    await this.userRepo.save(admin);
+
+    await this.audit.log(
+      'ADMIN_SET_SECURITY_PIN',
+      adminId,
+      adminId,
+      ip,
+      'Admin security PIN updated',
+    );
+    return { message: 'Đã cập nhật PIN admin' };
+  }
+
+  async resetUserPassword(
+    userId: string,
+    adminId: string,
+    ip: string,
+    adminPin: string,
+    reason: string,
+  ) {
+    if (!reason?.trim()) {
+      throw new BadRequestException('Phải nhập lý do reset mật khẩu');
+    }
+
+    await this.verifyAdminPin(adminId, adminPin);
+
+    const target = await this.userRepo.findOne({ where: { id: userId } });
+    if (!target) throw new NotFoundException('Không tìm thấy người dùng');
+
+    const tempPassword = this.generateTemporaryPassword();
+    target.passwordHash = this.pbkdf2.hashSecret(tempPassword, 'password');
+    target.forcePasswordChange = 1;
+    await this.userRepo.save(target);
+
+    await this.mailService.sendTemporaryPasswordEmail(
+      target.email,
+      tempPassword,
+    );
+
+    await this.audit.log(
+      'ADMIN_RESET_PASSWORD',
+      adminId,
+      userId,
+      ip,
+      `reason: ${reason}`,
+    );
+
+    return { message: 'Đã reset mật khẩu và gửi email cho người dùng' };
   }
 
   async getAuditLogs(
@@ -168,5 +255,112 @@ export class AdminService {
       .getCount();
 
     return { totalUsers, customers, admins, inactive };
+  }
+
+  async openSensitiveUserView(
+    targetUserId: string,
+    adminId: string,
+    ip: string,
+    adminPin: string,
+    reason: string,
+  ) {
+    if (!reason?.trim()) {
+      throw new BadRequestException('Phải nhập lý do xem thông tin chi tiết');
+    }
+    await this.verifyAdminPin(adminId, adminPin);
+
+    const user = await this.userRepo.findOne({ where: { id: targetUserId } });
+    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+
+    const customer = await this.customerRepo.findOne({
+      where: { userId: targetUserId },
+    });
+    if (!customer)
+      throw new NotFoundException('Không tìm thấy hồ sơ khách hàng');
+
+    const [phone, cccd, dateOfBirth, address] = await Promise.all([
+      this.aes.decrypt(this.aes.deserialize(customer.phone)),
+      this.aes.decrypt(this.aes.deserialize(customer.cccd)),
+      this.aes.decrypt(this.aes.deserialize(customer.dateOfBirth)),
+      this.aes.decrypt(this.aes.deserialize(customer.address)),
+    ]);
+
+    const viewToken = crypto.randomUUID();
+    const expiresAt = Date.now() + 2 * 60 * 1000;
+    this.adminViewSessions.set(viewToken, {
+      adminId,
+      targetUserId,
+      reason,
+      expiresAt,
+    });
+
+    await this.audit.log(
+      'ADMIN_VIEW_SENSITIVE_OPEN',
+      adminId,
+      targetUserId,
+      ip,
+      `reason: ${reason}`,
+    );
+
+    return {
+      viewToken,
+      expiresAt: new Date(expiresAt).toISOString(),
+      details: {
+        email: user.email,
+        phone: phone ?? '',
+        cccd: cccd ?? '',
+        dateOfBirth: dateOfBirth ?? '',
+        address: address ?? '',
+      },
+    };
+  }
+
+  async closeSensitiveUserView(viewToken: string, adminId: string, ip: string) {
+    const session = this.adminViewSessions.get(viewToken);
+    if (!session) return { message: 'Phiên xem đã hết hạn hoặc đã đóng' };
+
+    if (session.adminId !== adminId) {
+      throw new ForbiddenException('Không có quyền đóng phiên xem này');
+    }
+
+    this.adminViewSessions.delete(viewToken);
+    await this.audit.log(
+      'ADMIN_VIEW_SENSITIVE_CLOSE',
+      adminId,
+      session.targetUserId,
+      ip,
+      `reason: ${session.reason}`,
+    );
+    return { message: 'Đã đóng phiên xem chi tiết' };
+  }
+
+  private async verifyAdminPin(adminId: string, adminPin: string) {
+    if (!adminPin || !/^\d{6}$/.test(adminPin)) {
+      throw new BadRequestException('PIN admin không hợp lệ');
+    }
+
+    const admin = await this.userRepo.findOne({ where: { id: adminId } });
+    if (!admin || admin.role !== 'admin') {
+      throw new ForbiddenException('Không có quyền thực hiện thao tác này');
+    }
+
+    if (!admin.adminPinHash) {
+      throw new BadRequestException('Admin chưa thiết lập PIN bảo mật');
+    }
+
+    if (!this.pbkdf2.verifySecret(adminPin, admin.adminPinHash)) {
+      throw new ForbiddenException('PIN admin không đúng');
+    }
+  }
+
+  private generateTemporaryPassword() {
+    const chars =
+      'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
+    const bytes = crypto.randomBytes(12);
+    let result = '';
+    for (let i = 0; i < bytes.length; i++) {
+      result += chars[bytes[i] % chars.length];
+    }
+    return result;
   }
 }

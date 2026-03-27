@@ -42,6 +42,7 @@ export class CustomersController {
   async getMyProfile(
     @Req() req: any,
     @Query('pinVerified') pinVerified?: string,
+    @Query('viewToken') viewToken?: string,
   ) {
     const isPinVerified = pinVerified === 'true';
     const customerId = await this.service.getCustomerIdByUserId(req.user.sub);
@@ -52,6 +53,7 @@ export class CustomersController {
       Role.CUSTOMER,
       isPinVerified,
       req.ip,
+      viewToken,
     );
   }
 
@@ -71,14 +73,29 @@ export class CustomersController {
   async verifyPin(@Body() dto: VerifyPinDto, @Req() req: any) {
     const customerId = await this.service.getCustomerIdByUserId(req.user.sub);
     if (!customerId) throw new NotFoundException('Hồ sơ chưa được tạo');
-    const valid = await this.service.verifyPin(
+    const result = await this.service.verifyPin(
       customerId,
       req.user.sub,
       dto.pin,
       req.ip,
     );
-    if (!valid) throw new UnauthorizedException('PIN không đúng');
-    return { verified: true };
+    if (!result.verified) {
+      if (result.locked) {
+        throw new UnauthorizedException({
+          message: 'Tài khoản đã bị khóa vì nhập sai PIN quá 5 lần',
+          locked: true,
+          remainingAttempts: 0,
+        });
+      }
+      throw new UnauthorizedException({
+        message: result.message,
+        locked: false,
+        remainingAttempts: result.remainingAttempts,
+      });
+    }
+
+    const session = this.service.createPinViewSession(req.user.sub);
+    return { verified: true, ...session };
   }
 
   // Cài đặt PIN (lần đầu)
@@ -125,6 +142,7 @@ export class CustomersController {
       req.user.role as Role,
       false,
       req.ip,
+      undefined,
     );
   }
 }

@@ -7,34 +7,75 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
-import * as bcrypt from 'bcryptjs';
 import { Card } from '../accounts/entities/card.entity';
 import { Customer } from '../customers/entities/customer.entity';
+import { User } from '../auth/entities/user.entity';
 import { AesService } from '../../crypto/services/aes.service';
 import { AuditService } from '../../audit/audit.service';
 import { MaskingEngine } from '../../masking/masking.engine';
 import { Role } from '../../common/types/role.enum';
 import { CreateCardDto } from './dto/card.dto';
+import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
 
 @Injectable()
 export class CardsService {
   constructor(
     @InjectRepository(Card) private cardRepo: Repository<Card>,
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
+    @InjectRepository(User) private userRepo: Repository<User>,
     private aes: AesService,
     private audit: AuditService,
     private masking: MaskingEngine,
+    private pbkdf2: Pbkdf2Service,
   ) {}
 
   // ── MỞ THẺ ẢO MỚI ──────────────────────────────────────────────
   async createCard(userId: string, dto: CreateCardDto, ip: string) {
     const customer = await this.customerRepo.findOne({ where: { userId } });
-    if (!customer) throw new NotFoundException('Hồ sơ khách hàng không tồn tại');
+    if (!customer)
+      throw new NotFoundException('Hồ sơ khách hàng không tồn tại');
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user || !user.isActive || customer.pinLocked) {
+      await this.audit.log(
+        'CARD_CREATE_FAIL',
+        userId,
+        null,
+        ip,
+        'Tài khoản đang bị khóa',
+      );
+      throw new ForbiddenException('Tài khoản đang bị khóa');
+    }
 
     // Xác thực PIN
-    if (!customer.pinHash || !(await bcrypt.compare(dto.pin, customer.pinHash))) {
+    if (
+      !customer.pinHash ||
+      !this.pbkdf2.verifySecret(dto.pin, customer.pinHash)
+    ) {
+      customer.pinFailedAttempts = (customer.pinFailedAttempts || 0) + 1;
+      if (customer.pinFailedAttempts >= 5) {
+        customer.pinLocked = 1;
+        customer.pinLockedAt = new Date();
+        user.isActive = 0;
+        await this.userRepo.save(user);
+        await this.audit.log(
+          'PIN_LOCKED',
+          userId,
+          customer.id,
+          ip,
+          'Account locked after 5 wrong PIN attempts',
+        );
+      }
+      await this.customerRepo.save(customer);
       await this.audit.log('CARD_CREATE_FAIL', userId, null, ip, 'Sai mã PIN');
       throw new ForbiddenException('Mã PIN không hợp lệ');
+    }
+
+    if (customer.pinFailedAttempts > 0 || customer.pinLocked) {
+      customer.pinFailedAttempts = 0;
+      customer.pinLocked = 0;
+      customer.pinLockedAt = null;
+      await this.customerRepo.save(customer);
     }
 
     // Kiểm tra giới hạn 3 thẻ
@@ -78,13 +119,12 @@ export class CardsService {
   // ── LẤY DANH SÁCH THẺ (MASKED) ───────────────────────────────
   async getMyCards(userId: string, ip: string) {
     const customer = await this.customerRepo.findOne({ where: { userId } });
-    if (!customer) throw new NotFoundException('Hồ sơ khách hàng không tồn tại');
+    if (!customer)
+      throw new NotFoundException('Hồ sơ khách hàng không tồn tại');
 
     const cards = await this.cardRepo.find({
       where: { customerId: customer.id, isActive: 1 },
     });
-
-    await this.audit.log('VIEW_CARDS', userId, customer.id, ip, '');
 
     return Promise.all(
       cards.map(async (c) => {
@@ -113,12 +153,53 @@ export class CardsService {
   // ── XEM CHI TIẾT THẺ (UNMASKED - YÊU CẦU PIN) ────────────────
   async revealCard(userId: string, cardId: string, pin: string, ip: string) {
     const customer = await this.customerRepo.findOne({ where: { userId } });
-    if (!customer) throw new NotFoundException('Hồ sơ khách hàng không tồn tại');
+    if (!customer)
+      throw new NotFoundException('Hồ sơ khách hàng không tồn tại');
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user || !user.isActive || customer.pinLocked) {
+      await this.audit.log(
+        'CARD_REVEAL_FAIL',
+        userId,
+        cardId,
+        ip,
+        'Tài khoản đang bị khóa',
+      );
+      throw new ForbiddenException('Tài khoản đang bị khóa');
+    }
 
     // Xác thực PIN
-    if (!customer.pinHash || !(await bcrypt.compare(pin, customer.pinHash))) {
-      await this.audit.log('CARD_REVEAL_FAIL', userId, cardId, ip, 'Sai mã PIN');
+    if (!customer.pinHash || !this.pbkdf2.verifySecret(pin, customer.pinHash)) {
+      customer.pinFailedAttempts = (customer.pinFailedAttempts || 0) + 1;
+      if (customer.pinFailedAttempts >= 5) {
+        customer.pinLocked = 1;
+        customer.pinLockedAt = new Date();
+        user.isActive = 0;
+        await this.userRepo.save(user);
+        await this.audit.log(
+          'PIN_LOCKED',
+          userId,
+          customer.id,
+          ip,
+          'Account locked after 5 wrong PIN attempts',
+        );
+      }
+      await this.customerRepo.save(customer);
+      await this.audit.log(
+        'CARD_REVEAL_FAIL',
+        userId,
+        cardId,
+        ip,
+        'Sai mã PIN',
+      );
       throw new ForbiddenException('Mã PIN không hợp lệ');
+    }
+
+    if (customer.pinFailedAttempts > 0 || customer.pinLocked) {
+      customer.pinFailedAttempts = 0;
+      customer.pinLocked = 0;
+      customer.pinLockedAt = null;
+      await this.customerRepo.save(customer);
     }
 
     const card = await this.cardRepo.findOne({

@@ -7,23 +7,26 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import * as crypto from 'crypto';
-import * as bcrypt from 'bcryptjs';
 import { Account } from '../accounts/entities/account.entity';
 import { Customer } from '../customers/entities/customer.entity';
+import { User } from '../auth/entities/user.entity';
 import { Transaction } from './entities/transaction.entity';
 import { AesService } from '../../crypto/services/aes.service';
 import { AuditService } from '../../audit/audit.service';
 import { TransferDto } from './dto/transfer.dto';
+import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
 
 @Injectable()
 export class TransactionsService {
   constructor(
     @InjectRepository(Account) private accountRepo: Repository<Account>,
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
+    @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Transaction) private txRepo: Repository<Transaction>,
     private aes: AesService,
     private audit: AuditService,
     private dataSource: DataSource,
+    private pbkdf2: Pbkdf2Service,
   ) {}
 
   async transfer(dto: TransferDto, userId: string, ip: string) {
@@ -37,12 +40,46 @@ export class TransactionsService {
     if (!customer)
       throw new NotFoundException('Hồ sơ khách hàng không tồn tại');
 
-    if (
-      !customer.pinHash ||
-      !(await bcrypt.compare(dto.pin, customer.pinHash))
-    ) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user || !user.isActive || customer.pinLocked) {
+      await this.audit.log(
+        'TRANSFER_FAIL',
+        userId,
+        null,
+        ip,
+        'Tài khoản đang bị khóa do nhập sai PIN',
+      );
+      throw new ForbiddenException('Tài khoản đang bị khóa');
+    }
+
+    const pinValid =
+      !!customer.pinHash && this.pbkdf2.verifySecret(dto.pin, customer.pinHash);
+
+    if (!pinValid) {
+      customer.pinFailedAttempts = (customer.pinFailedAttempts || 0) + 1;
+      if (customer.pinFailedAttempts >= 5) {
+        customer.pinLocked = 1;
+        customer.pinLockedAt = new Date();
+        user.isActive = 0;
+        await this.userRepo.save(user);
+        await this.audit.log(
+          'PIN_LOCKED',
+          userId,
+          customer.id,
+          ip,
+          'Account locked after 5 wrong PIN attempts',
+        );
+      }
+      await this.customerRepo.save(customer);
       await this.audit.log('TRANSFER_FAIL', userId, null, ip, 'Sai mã PIN');
       throw new ForbiddenException('Mã PIN không hợp lệ');
+    }
+
+    if (customer.pinFailedAttempts > 0 || customer.pinLocked) {
+      customer.pinFailedAttempts = 0;
+      customer.pinLocked = 0;
+      customer.pinLockedAt = null;
+      await this.customerRepo.save(customer);
     }
 
     const ownerCheck = await this.accountRepo.findOne({
@@ -186,13 +223,6 @@ export class TransactionsService {
       }),
     );
 
-    await this.audit.log(
-      'VIEW_TRANSACTIONS',
-      userId,
-      accountId,
-      ip,
-      `Page: ${page}`,
-    );
     return { items, total, page, limit };
   }
 }

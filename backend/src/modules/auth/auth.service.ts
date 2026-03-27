@@ -3,11 +3,11 @@ import {
   UnauthorizedException,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { User } from './entities/user.entity';
 import { Customer } from '../customers/entities/customer.entity';
@@ -16,6 +16,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuditService } from '../../audit/audit.service';
 import { AesService } from '../../crypto/services/aes.service';
+import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
 
 @Injectable()
 export class AuthService {
@@ -26,6 +27,7 @@ export class AuthService {
     private jwtService: JwtService,
     private auditService: AuditService,
     private aesService: AesService,
+    private pbkdf2: Pbkdf2Service,
   ) {}
 
   async register(dto: RegisterDto, ip: string) {
@@ -58,8 +60,7 @@ export class AuthService {
     });
     if (accExists) throw new ConflictException('Số tài khoản đã tồn tại');
 
-    // Băm mật khẩu — 12 rounds ≈ 250ms (đủ chậm để chống brute force)
-    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const passwordHash = this.pbkdf2.hashSecret(dto.password, 'password');
     const userId = `USR-${crypto.randomUUID().toUpperCase().slice(0, 8)}`;
     const customerId = `CUS-${crypto.randomUUID().toUpperCase().slice(0, 8)}`;
     const accountId = `ACC-${crypto.randomUUID().toUpperCase().slice(0, 8)}`;
@@ -139,7 +140,7 @@ export class AuthService {
 
     // KHÔNG phân biệt "user không tồn tại" và "sai mật khẩu" (chống user enumeration)
     const isValid = user
-      ? await bcrypt.compare(dto.password, user.passwordHash)
+      ? this.pbkdf2.verifySecret(dto.password, user.passwordHash)
       : false;
 
     if (!user || !isValid || !user.isActive) {
@@ -166,7 +167,11 @@ export class AuthService {
       ip,
       `Role: ${user.role}`,
     );
-    return { accessToken: token, role: user.role };
+    return {
+      accessToken: token,
+      role: user.role,
+      forcePasswordChange: !!user.forcePasswordChange,
+    };
   }
 
   async getProfile(userId: string) {
@@ -178,6 +183,7 @@ export class AuthService {
       role: user.role,
       fullName: user.fullName,
       email: user.email,
+      forcePasswordChange: !!user.forcePasswordChange,
     };
   }
 
@@ -191,5 +197,48 @@ export class AuthService {
     if (data.email !== undefined) user.email = data.email;
     await this.userRepo.save(user);
     return { message: 'Cập nhật hồ sơ thành công' };
+  }
+
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    ip: string,
+  ) {
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('Mật khẩu mới phải từ 8 ký tự');
+    }
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+
+    const validCurrent = this.pbkdf2.verifySecret(
+      currentPassword,
+      user.passwordHash,
+    );
+    if (!validCurrent) {
+      await this.auditService.log(
+        'CHANGE_PASSWORD_FAIL',
+        userId,
+        userId,
+        ip,
+        'Current password mismatch',
+      );
+      throw new UnauthorizedException('Mật khẩu hiện tại không đúng');
+    }
+
+    user.passwordHash = this.pbkdf2.hashSecret(newPassword, 'password');
+    user.forcePasswordChange = 0;
+    await this.userRepo.save(user);
+
+    await this.auditService.log(
+      'CHANGE_PASSWORD',
+      userId,
+      userId,
+      ip,
+      'Password changed by user',
+    );
+
+    return { message: 'Đổi mật khẩu thành công' };
   }
 }

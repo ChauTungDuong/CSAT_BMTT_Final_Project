@@ -5,6 +5,7 @@ import { CryptoLogService } from './services/crypto-log.service';
 import { CryptoGateway } from './crypto.gateway';
 import { CryptoTraceContextService } from './services/crypto-trace-context.service';
 import { CryptoController } from './crypto.controller';
+import { Pbkdf2Service } from './services/pbkdf2.service';
 
 @Module({
   providers: [
@@ -13,6 +14,7 @@ import { CryptoController } from './crypto.controller';
     CryptoLogService,
     CryptoGateway,
     CryptoTraceContextService,
+    Pbkdf2Service,
   ],
   controllers: [CryptoController],
   exports: [
@@ -20,6 +22,7 @@ import { CryptoController } from './crypto.controller';
     HmacService,
     CryptoLogService,
     CryptoTraceContextService,
+    Pbkdf2Service,
   ],
 })
 export class CryptoModule {}

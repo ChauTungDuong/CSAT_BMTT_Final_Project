@@ -17,6 +17,9 @@ export class User {
   @Column({ name: 'PASSWORD_HASH', length: 255 })
   passwordHash: string;
 
+  @Column({ name: 'ADMIN_PIN_HASH', length: 255, nullable: true })
+  adminPinHash: string | null;
+
   @Column({
     name: 'ROLE',
     length: 20,
@@ -26,6 +29,15 @@ export class User {
 
   @Column({ name: 'FULL_NAME', length: 200 })
   fullName: string;
+
+  @Column({
+    name: 'FORCE_PASSWORD_CHANGE',
+    type: 'decimal',
+    precision: 1,
+    scale: 0,
+    default: 0,
+  })
+  forcePasswordChange: number;
 
   @Column({ name: 'EMAIL', length: 200 })
   email: string;

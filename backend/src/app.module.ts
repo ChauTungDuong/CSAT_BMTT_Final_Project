@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
+import * as nodeCrypto from 'crypto';
 import { CryptoModule } from './crypto/crypto.module';
 import { MaskingModule } from './masking/masking.module';
 import { AuditModule } from './audit/audit.module';
@@ -11,6 +12,14 @@ import { AccountsModule } from './modules/accounts/accounts.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { CardsModule } from './modules/cards/cards.module';
+
+const globalAny = globalThis as any;
+if (!globalAny.crypto || typeof globalAny.crypto.randomUUID !== 'function') {
+  globalAny.crypto = {
+    ...(globalAny.crypto || {}),
+    randomUUID: nodeCrypto.randomUUID,
+  };
+}
 
 @Module({
   imports: [

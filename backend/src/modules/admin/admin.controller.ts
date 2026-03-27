@@ -2,7 +2,7 @@ import {
   Controller,
   Get,
   Patch,
-  Delete,
+  Post,
   Param,
   Body,
   Query,
@@ -31,10 +31,61 @@ export class AdminController {
   @Patch('users/:id/status')
   toggleStatus(
     @Param('id') id: string,
-    @Body() body: { isActive: boolean },
+    @Body() body: { isActive: boolean; adminPin: string; reason: string },
     @Req() req: any,
   ) {
-    return this.service.setUserStatus(id, body.isActive, req.user.sub, req.ip);
+    return this.service.setUserStatus(
+      id,
+      body.isActive,
+      req.user.sub,
+      req.ip,
+      body.adminPin,
+      body.reason,
+    );
+  }
+
+  @Post('security/set-pin')
+  setAdminPin(@Body() body: { pin: string }, @Req() req: any) {
+    return this.service.setAdminSecurityPin(req.user.sub, body.pin, req.ip);
+  }
+
+  @Post('users/:id/reset-password')
+  resetUserPassword(
+    @Param('id') id: string,
+    @Body() body: { adminPin: string; reason: string },
+    @Req() req: any,
+  ) {
+    return this.service.resetUserPassword(
+      id,
+      req.user.sub,
+      req.ip,
+      body.adminPin,
+      body.reason,
+    );
+  }
+
+  @Post('users/:id/view-details')
+  openSensitiveView(
+    @Param('id') id: string,
+    @Body() body: { adminPin: string; reason: string },
+    @Req() req: any,
+  ) {
+    return this.service.openSensitiveUserView(
+      id,
+      req.user.sub,
+      req.ip,
+      body.adminPin,
+      body.reason,
+    );
+  }
+
+  @Post('view-sessions/close')
+  closeSensitiveView(@Body() body: { viewToken: string }, @Req() req: any) {
+    return this.service.closeSensitiveUserView(
+      body.viewToken,
+      req.user.sub,
+      req.ip,
+    );
   }
 
   // Đổi vai trò người dùng
@@ -45,12 +96,6 @@ export class AdminController {
     @Req() req: any,
   ) {
     return this.service.changeUserRole(id, body.role, req.user.sub, req.ip);
-  }
-
-  // Xoá người dùng (chỉ tài khoản không có hồ sơ khách hàng)
-  @Delete('users/:id')
-  deleteUser(@Param('id') id: string, @Req() req: any) {
-    return this.service.deleteUser(id, req.user.sub, req.ip);
   }
 
   // Audit log

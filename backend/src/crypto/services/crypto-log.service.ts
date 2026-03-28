@@ -123,6 +123,10 @@ export class CryptoLogService {
     return this.groupSubject.asObservable();
   }
 
+  clearGroups() {
+    this.groups.clear();
+  }
+
   private trimOverflow() {
     if (this.groups.size <= this.maxGroups) return;
 

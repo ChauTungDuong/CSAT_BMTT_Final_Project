@@ -7,6 +7,7 @@ import type { CryptoActionGroup } from "./types/crypto-log";
 // Lấy backend URL từ env hoặc mặc định localhost:3000
 const BACKEND_URL =
   (import.meta as any).env.VITE_BACKEND_URL || "http://localhost:3000";
+const MONITOR_TOKEN = (import.meta as any).env.VITE_MONITOR_TOKEN || "";
 
 function App() {
   const [allGroups, setAllGroups] = useState<CryptoActionGroup[]>([]);
@@ -24,8 +25,13 @@ function App() {
 
   // Separate groups into decrypt and encrypt
   const separateGroups = (groups: CryptoActionGroup[]) => {
-    const decrypt = groups.filter((g) => g.operation === "decrypt");
-    const encrypt = groups.filter((g) => g.operation === "encrypt");
+    // Group mixed được render ở cả 2 cột, LogColumn sẽ lọc theo step.operation
+    const decrypt = groups.filter(
+      (g) => g.operation === "decrypt" || g.operation === "mixed",
+    );
+    const encrypt = groups.filter(
+      (g) => g.operation === "encrypt" || g.operation === "mixed",
+    );
     setDecryptGroups(decrypt);
     setEncryptGroups(encrypt);
   };
@@ -45,7 +51,17 @@ function App() {
     try {
       const res = await fetch(
         `${BACKEND_URL}/api/crypto/groups?${params.toString()}`,
+        {
+          headers: MONITOR_TOKEN
+            ? { "x-monitor-token": MONITOR_TOKEN }
+            : undefined,
+        },
       );
+
+      if (!res.ok) {
+        throw new Error(`Fetch failed (${res.status})`);
+      }
+
       const data = await res.json();
       setAllGroups(data.items || []);
       separateGroups(data.items || []);
@@ -57,7 +73,9 @@ function App() {
   };
 
   useEffect(() => {
-    const socket: Socket = io(`${BACKEND_URL}/crypto`);
+    const socket: Socket = io(`${BACKEND_URL}/crypto`, {
+      auth: MONITOR_TOKEN ? { token: MONITOR_TOKEN } : undefined,
+    });
 
     socket.on("connect", () => {
       setConnected(true);
@@ -125,10 +143,21 @@ function App() {
             setOperationFilter(value);
           }}
           total={total}
+          onClear={async () => {
+            await fetch(`${BACKEND_URL}/api/crypto/groups`, {
+              method: "DELETE",
+              headers: MONITOR_TOKEN
+                ? { "x-monitor-token": MONITOR_TOKEN }
+                : undefined,
+            });
+            setAllGroups([]);
+            setDecryptGroups([]);
+            setEncryptGroups([]);
+          }}
         />
 
         {/* 2-Column Layout */}
-        <div className="grid grid-cols-2 gap-4 mb-6 bg-white border border-slate-200 rounded-xl overflow-hidden min-h-96">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 bg-white border border-slate-200 rounded-xl h-[68vh] min-h-[420px] overflow-visible p-2">
           <LogColumn
             title="Giải Mã (Decrypt)"
             groups={decryptGroups}

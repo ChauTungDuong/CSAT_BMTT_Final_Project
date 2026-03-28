@@ -48,7 +48,8 @@ export class MaskingEngine {
       case 'cccd':
         return value.replace(/^(\d{3})\d{5}(\d{4})$/, '$1*****$2');
       case 'account_number':
-        return value.replace(/^\d+(\d{4})$/, '******$1');
+        // Số tài khoản luôn là field riêng, không che cho owner
+        return value;
       case 'card_number':
         return value.replace(/^(\d{4})\d{8}(\d{4})$/, '**** **** **** $2');
       case 'cvv':
@@ -70,9 +71,9 @@ export class MaskingEngine {
   private maskForAdmin(value: string, field: FieldType): string {
     switch (field) {
       case 'phone':
-        return value.replace(/^(\d{3})\d{4}(\d{3})$/, '$1****$2');
+        return value.replace(/^(\d{2})\d{6}(\d{2})$/, '$1******$2');
       case 'email':
-        return value.replace(/^(\w{2,3})\w+(@.+)$/, '$1***$2');
+        return value.replace(/^(\w{1})\w+(@.+)$/, '$1***$2');
       case 'cccd':
         return this.fullMask('cccd');
       case 'card_number':

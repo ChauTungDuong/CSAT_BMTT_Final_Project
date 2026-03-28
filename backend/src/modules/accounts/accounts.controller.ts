@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Req, UseGuards, Query } from '@nestjs/common';
+import { Controller, Get, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -13,8 +13,7 @@ export class AccountsController {
   // Customer xem tài khoản của mình
   @Get('me')
   @Roles(Role.CUSTOMER)
-  getMyAccounts(@Req() req: any, @Query('pinVerified') pinVerified?: string) {
-    const isPinVerified = pinVerified === 'true';
-    return this.service.getMyAccounts(req.user.sub, isPinVerified, req.ip);
+  getMyAccounts(@Req() req: any) {
+    return this.service.getMyAccounts(req.user.sub, req.ip);
   }
 }

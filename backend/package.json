@@ -18,9 +18,15 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "db:seed:customers": "node scripts/seed-customers.js",
-    "db:reset-migrate-seed": "node scripts/reset-migrate-seed.js",
-    "db:migrate:docker": "node scripts/reset-migrate-seed.js --migrate-only"
+    "db:seed:customers": "node scripts/seed-customers.js --mode=cloud",
+    "db:seed:customers:local": "node scripts/seed-customers.js --mode=local",
+    "db:reset-migrate-seed": "node scripts/reset-migrate-seed.js --mode=cloud",
+    "db:cloud:reset-migrate-seed": "node scripts/reset-migrate-seed.js --mode=cloud",
+    "db:local:reset-migrate-seed": "node scripts/reset-migrate-seed.js --mode=local",
+    "db:migrate:cloud": "node scripts/reset-migrate-seed.js --mode=cloud --migrate-only",
+    "db:migrate:docker": "node scripts/reset-migrate-seed.js --mode=local --migrate-only",
+    "db:fix-passwords": "node scripts/fix-passwords.js --mode=cloud",
+    "db:fix-passwords:local": "node scripts/fix-passwords.js --mode=local"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",

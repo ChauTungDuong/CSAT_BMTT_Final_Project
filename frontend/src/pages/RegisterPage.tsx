@@ -37,6 +37,7 @@ export default function RegisterPage() {
   const [wards, setWards] = useState<Ward[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false);
 
   useEffect(() => {
     fetch("/data.json")
@@ -91,7 +92,7 @@ export default function RegisterPage() {
         address: addressString,
         accountNumber,
       });
-      navigate("/login");
+      setShowSuccessDialog(true);
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { message?: string } } })?.response?.data
@@ -332,6 +333,25 @@ export default function RegisterPage() {
           </Link>
         </p>
       </div>
+
+      {showSuccessDialog && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 border border-gray-200">
+            <h3 className="text-lg font-semibold text-gray-800 text-center">
+              Đăng ký thành công
+            </h3>
+            <p className="text-sm text-gray-600 text-center mt-2">
+              Tài khoản đã được tạo. Vui lòng đăng nhập để tiếp tục.
+            </p>
+            <button
+              onClick={() => navigate("/login")}
+              className="mt-6 w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition font-medium"
+            >
+              Đến trang đăng nhập
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

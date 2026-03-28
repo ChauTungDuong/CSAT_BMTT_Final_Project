@@ -9,27 +9,32 @@ import type { Account, Customer } from "../../types";
 export function DashboardPage() {
   const navigate = useNavigate();
   const [showPinModal, setShowPinModal] = useState(false);
-  const [pinVerified, setPinVerified] = useState(false);
+  const [viewToken, setViewToken] = useState<string | null>(null);
   const [showBalance, setShowBalance] = useState<Record<string, boolean>>({});
 
   const { data: profile } = useQuery<Customer>({
-    queryKey: ["my-profile", pinVerified],
+    queryKey: ["my-profile", viewToken],
     queryFn: async () =>
-      (await api.get(`/customers/me${pinVerified ? "?pinVerified=true" : ""}`))
-        .data,
+      (
+        await api.get("/customers/me", {
+          params: viewToken ? { viewToken } : undefined,
+        })
+      ).data,
   });
 
   const { data: accounts } = useQuery<Account[]>({
-    queryKey: ["my-accounts", pinVerified],
-    queryFn: async () =>
-      (await api.get(`/accounts/me${pinVerified ? "?pinVerified=true" : ""}`))
-        .data,
+    queryKey: ["my-accounts", viewToken],
+    queryFn: async () => (await api.get("/accounts/me")).data,
   });
 
-  const handlePinSuccess = () => {
-    setPinVerified(true);
+  const handlePinSuccess = (payload?: any) => {
+    if (payload?.viewToken) {
+      setViewToken(payload.viewToken);
+    }
     setShowPinModal(false);
   };
+
+  const pinVerified = !!profile?.isPinVerified;
 
   useEffect(() => {
     if (profile && profile.hasPin === false) {
@@ -187,27 +192,27 @@ export function DashboardPage() {
             <MaskedField
               label="Email"
               value={profile?.email}
-              isMasked={!pinVerified}
+              isMasked={!profile?.isPinVerified}
             />
             <MaskedField
               label="Số điện thoại"
               value={profile?.phone}
-              isMasked={!pinVerified}
+              isMasked={!profile?.isPinVerified}
             />
             <MaskedField
               label="CCCD"
               value={profile?.cccd}
-              isMasked={!pinVerified}
+              isMasked={!profile?.isPinVerified}
             />
             <MaskedField
               label="Ngày sinh"
               value={profile?.dateOfBirth}
-              isMasked={!pinVerified}
+              isMasked={!profile?.isPinVerified}
             />
             <MaskedField
               label="Địa chỉ"
               value={profile?.address}
-              isMasked={!pinVerified}
+              isMasked={!profile?.isPinVerified}
             />
           </dl>
         </div>

@@ -1,9 +1,9 @@
-version: "3.8"
-
 services:
   oracle:
     image: gvenzl/oracle-xe:21-slim
     container_name: oracle-xe
+    profiles:
+      - localdb
     restart: unless-stopped
     ports:
       - "1521:1521"
@@ -19,6 +19,7 @@ services:
       - ./backend/sql/02_seed.sql:/container-entrypoint-initdb.d/02_seed.sql
       - ./backend/sql/04_migrate_user_profile.sql:/container-entrypoint-initdb.d/04_migrate_user_profile.sql
       - ./backend/sql/05_security_hardening.sql:/container-entrypoint-initdb.d/05_security_hardening.sql
+      - ./backend/sql/06_card_normalization.sql:/container-entrypoint-initdb.d/06_card_normalization.sql
     healthcheck:
       test: ["CMD", "healthcheck.sh"]
       interval: 30s
@@ -34,13 +35,14 @@ services:
     restart: unless-stopped
     ports:
       - "3000:3000"
-    depends_on:
-      oracle:
-        condition: service_healthy
     env_file:
       - ./backend/.env
+    environment:
+      DB_CONNECTION_MODE: ${DB_CONNECTION_MODE:-cloud}
+      WALLET_PATH: ${WALLET_CONTAINER_PATH:-/app/wallet}
     volumes:
       - ./backend/ssl:/app/ssl:ro
+      - ${WALLET_HOST_PATH:-/opt/csat/wallet}:${WALLET_CONTAINER_PATH:-/app/wallet}:ro
 
   frontend:
     build:
@@ -49,22 +51,23 @@ services:
     container_name: bank-frontend
     restart: unless-stopped
     ports:
-      - "3002:443"
+      - "3002:80"
     depends_on:
       - backend
-    volumes:
-      - ./backend/ssl:/etc/nginx/ssl:ro
 
   monitor:
     build:
       context: ./monitor
       dockerfile: Dockerfile
     container_name: bank-monitor
+    profiles:
+      - monitor
     restart: unless-stopped
     ports:
       - "3003:80"
     environment:
       - VITE_BACKEND_URL=http://bank-backend:3000
+      - VITE_MONITOR_TOKEN=${CRYPTO_MONITOR_TOKEN:-}
     depends_on:
       - backend
 

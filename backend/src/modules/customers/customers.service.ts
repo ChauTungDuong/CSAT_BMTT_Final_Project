@@ -25,6 +25,15 @@ export class CustomersService {
     { token: string; expiresAt: number }
   >();
 
+  private readonly pinChangeOtpSessions = new Map<
+    string,
+    {
+      otpHash: string;
+      expiresAt: number;
+      failedAttempts: number;
+    }
+  >();
+
   constructor(
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
     @InjectRepository(User) private userRepo: Repository<User>,
@@ -84,7 +93,6 @@ export class CustomersService {
     customerId: string,
     viewerId: string,
     viewerRole: Role,
-    isPinVerified: boolean,
     ip: string,
     viewToken?: string,
   ) {
@@ -108,10 +116,7 @@ export class CustomersService {
       : [null, null, null, null];
 
     const roleToUse = isOwner ? Role.CUSTOMER : viewerRole;
-    const pinMode =
-      isOwner &&
-      isPinVerified &&
-      this.isPinViewSessionValid(viewerId, viewToken);
+    const pinMode = isOwner && this.isPinViewSessionValid(viewerId, viewToken);
 
     return {
       id: customer.id,
@@ -140,34 +145,68 @@ export class CustomersService {
     userId: string,
     dto: UpdateCustomerDto,
     ip: string,
+    viewToken?: string,
   ) {
+    if (!this.isPinViewSessionValid(userId, viewToken)) {
+      throw new ForbiddenException(
+        'Vui lòng xác thực PIN trước khi cập nhật hồ sơ',
+      );
+    }
+
     const customer = await this.customerRepo.findOne({
       where: { id: customerId, userId },
     });
     if (!customer) throw new NotFoundException('Không tìm thấy khách hàng');
 
-    if (dto.fullName) customer.fullName = dto.fullName;
-    if (dto.email) customer.email = dto.email;
-    if (dto.phone)
-      customer.phone = this.aes.serialize(await this.aes.encrypt(dto.phone));
-    if (dto.cccd)
-      customer.cccd = this.aes.serialize(await this.aes.encrypt(dto.cccd));
-    if (dto.dateOfBirth)
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+
+    if (dto.fullName !== undefined) {
+      const normalizedName = dto.fullName.trim();
+      if (!normalizedName) {
+        throw new BadRequestException('Họ và tên không được để trống');
+      }
+      customer.fullName = normalizedName;
+      user.fullName = normalizedName;
+    }
+
+    if (dto.email !== undefined) {
+      const normalizedEmail = dto.email.trim().toLowerCase();
+      if (!normalizedEmail) {
+        throw new BadRequestException('Email không được để trống');
+      }
+
+      const existingEmail = await this.userRepo
+        .createQueryBuilder('u')
+        .where('LOWER(u.email) = :email', { email: normalizedEmail })
+        .andWhere('u.id != :id', { id: userId })
+        .getOne();
+      if (existingEmail) {
+        throw new BadRequestException('Email đã tồn tại');
+      }
+
+      customer.email = normalizedEmail;
+      user.email = normalizedEmail;
+    }
+
+    if (dto.dateOfBirth !== undefined)
       customer.dateOfBirth = this.aes.serialize(
-        await this.aes.encrypt(dto.dateOfBirth),
-      );
-    if (dto.address)
-      customer.address = this.aes.serialize(
-        await this.aes.encrypt(dto.address),
+        await this.aes.encrypt(this.normalizeDateOfBirth(dto.dateOfBirth)),
       );
 
+    if (dto.address !== undefined)
+      customer.address = this.aes.serialize(
+        await this.aes.encrypt(dto.address.trim()),
+      );
+
+    await this.userRepo.save(user);
     await this.customerRepo.save(customer);
     await this.audit.log(
       'UPDATE_PROFILE',
       userId,
       customerId,
       ip,
-      'Profile updated',
+      'Profile updated (PIN-verified session)',
     );
     return { message: 'Cập nhật hồ sơ thành công' };
   }
@@ -297,6 +336,10 @@ export class CustomersService {
     return true;
   }
 
+  isPinViewTokenValid(userId: string, token?: string) {
+    return this.isPinViewSessionValid(userId, token);
+  }
+
   // ── CÀI ĐẶT PIN (Lần Đầu) ──────────────────────────────────────
   async setupPin(
     customerId: string,
@@ -352,13 +395,7 @@ export class CustomersService {
   }
 
   // ── ĐẶT/ĐỔI PIN ──────────────────────────────────────────────
-  async setPin(
-    customerId: string,
-    userId: string,
-    newPin: string,
-    ip: string,
-    oldPin?: string,
-  ) {
+  async setPin(customerId: string, userId: string, newPin: string, ip: string) {
     if (!/^\d{6}$/.test(newPin)) {
       throw new BadRequestException('PIN phải là 6 chữ số');
     }
@@ -367,22 +404,11 @@ export class CustomersService {
     });
     if (!customer) throw new NotFoundException('Không tìm thấy khách hàng');
 
-    // Nếu đã có PIN thì phải xác thực PIN cũ
+    // Đổi PIN đã có phải đi qua quy trình OTP 2 bước.
     if (customer.pinHash) {
-      if (!oldPin) {
-        throw new BadRequestException('Vui lòng nhập PIN cũ để đổi PIN mới');
-      }
-      const valid = this.pbkdf2.verifySecret(oldPin, customer.pinHash);
-      if (!valid) {
-        await this.audit.log(
-          'PIN_CHANGE_FAIL',
-          userId,
-          customerId,
-          ip,
-          'Wrong old PIN',
-        );
-        throw new BadRequestException('PIN cũ không đúng');
-      }
+      throw new BadRequestException(
+        'Vui lòng dùng quy trình đổi PIN mới (xác thực mật khẩu + OTP)',
+      );
     }
 
     customer.pinHash = this.pbkdf2.hashSecret(newPin, 'pin');
@@ -391,6 +417,168 @@ export class CustomersService {
     customer.pinLockedAt = null;
     await this.customerRepo.save(customer);
     await this.audit.log('PIN_CHANGED', userId, customerId, ip, 'PIN updated');
+    return { message: 'Đổi PIN thành công' };
+  }
+
+  async requestPinChangeOtp(
+    customerId: string,
+    userId: string,
+    currentPassword: string,
+    currentPin: string,
+    ip: string,
+  ) {
+    if (!currentPassword?.trim()) {
+      throw new BadRequestException('Vui lòng nhập mật khẩu hiện tại');
+    }
+
+    if (!/^[\d]{6}$/.test(currentPin || '')) {
+      throw new BadRequestException('PIN hiện tại không hợp lệ');
+    }
+
+    const customer = await this.customerRepo.findOne({
+      where: { id: customerId, userId },
+    });
+    if (!customer) throw new NotFoundException('Không tìm thấy khách hàng');
+    if (!customer.pinHash) {
+      throw new BadRequestException('Bạn chưa thiết lập PIN');
+    }
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+
+    if (!this.pbkdf2.verifySecret(currentPassword, user.passwordHash)) {
+      await this.audit.log(
+        'PIN_CHANGE_OTP_REQUEST_FAIL',
+        userId,
+        customerId,
+        ip,
+        'Current password mismatch',
+      );
+      throw new BadRequestException('Mật khẩu hiện tại không đúng');
+    }
+
+    if (!this.pbkdf2.verifySecret(currentPin, customer.pinHash)) {
+      await this.audit.log(
+        'PIN_CHANGE_OTP_REQUEST_FAIL',
+        userId,
+        customerId,
+        ip,
+        'Current PIN mismatch',
+      );
+      throw new BadRequestException('PIN hiện tại không đúng');
+    }
+
+    const recipient = (customer.email || user.email || '').trim();
+    if (!recipient) {
+      throw new BadRequestException('Không tìm thấy email để gửi OTP');
+    }
+
+    const otp = this.generateOtpCode();
+    this.pinChangeOtpSessions.set(userId, {
+      otpHash: this.pbkdf2.hashSecret(otp, 'pin'),
+      expiresAt: Date.now() + 5 * 60 * 1000,
+      failedAttempts: 0,
+    });
+
+    try {
+      await this.mailService.sendPinChangeOtpEmail(recipient, otp);
+    } catch {
+      this.pinChangeOtpSessions.delete(userId);
+      throw new BadRequestException(
+        'Không thể gửi OTP lúc này. Vui lòng thử lại sau.',
+      );
+    }
+
+    await this.audit.log(
+      'PIN_CHANGE_OTP_SENT',
+      userId,
+      customerId,
+      ip,
+      'PIN change OTP sent',
+    );
+
+    return {
+      message: 'Đã gửi OTP xác thực đổi PIN tới email đăng ký.',
+      otpRequired: true,
+      otpExpiresInSeconds: 300,
+    };
+  }
+
+  async confirmPinChangeOtp(
+    customerId: string,
+    userId: string,
+    otp: string,
+    newPin: string,
+    confirmPin: string,
+    ip: string,
+  ) {
+    if (!/^[\d]{6}$/.test(otp || '')) {
+      throw new BadRequestException('OTP không hợp lệ');
+    }
+
+    if (!/^[\d]{6}$/.test(newPin || '')) {
+      throw new BadRequestException('PIN mới phải gồm đúng 6 chữ số');
+    }
+
+    if (newPin !== confirmPin) {
+      throw new BadRequestException('PIN xác nhận không khớp');
+    }
+
+    const customer = await this.customerRepo.findOne({
+      where: { id: customerId, userId },
+    });
+    if (!customer || !customer.pinHash) {
+      throw new NotFoundException('Không tìm thấy PIN hiện tại');
+    }
+
+    const session = this.pinChangeOtpSessions.get(userId);
+    if (!session) {
+      throw new BadRequestException('OTP không hợp lệ hoặc đã hết hạn');
+    }
+
+    if (Date.now() > session.expiresAt) {
+      this.pinChangeOtpSessions.delete(userId);
+      throw new BadRequestException('OTP không hợp lệ hoặc đã hết hạn');
+    }
+
+    if (!this.pbkdf2.verifySecret(otp, session.otpHash)) {
+      session.failedAttempts += 1;
+      if (session.failedAttempts >= 5) {
+        this.pinChangeOtpSessions.delete(userId);
+      } else {
+        this.pinChangeOtpSessions.set(userId, session);
+      }
+
+      await this.audit.log(
+        'PIN_CHANGE_FAIL',
+        userId,
+        customerId,
+        ip,
+        'Wrong OTP',
+      );
+
+      throw new BadRequestException('OTP không đúng');
+    }
+
+    if (this.pbkdf2.verifySecret(newPin, customer.pinHash)) {
+      throw new BadRequestException('PIN mới phải khác PIN hiện tại');
+    }
+
+    customer.pinHash = this.pbkdf2.hashSecret(newPin, 'pin');
+    customer.pinFailedAttempts = 0;
+    customer.pinLocked = 0;
+    customer.pinLockedAt = null;
+    await this.customerRepo.save(customer);
+    this.pinChangeOtpSessions.delete(userId);
+
+    await this.audit.log(
+      'PIN_CHANGED',
+      userId,
+      customerId,
+      ip,
+      'PIN updated via OTP confirmation',
+    );
+
     return { message: 'Đổi PIN thành công' };
   }
 
@@ -403,5 +591,25 @@ export class CustomersService {
       order: { createdAt: 'DESC' },
     });
     return { items, total, page, limit };
+  }
+
+  private generateOtpCode() {
+    return `${crypto.randomInt(0, 1_000_000)}`.padStart(6, '0');
+  }
+
+  private normalizeDateOfBirth(input: string): string {
+    const value = (input || '').trim();
+    const isoLike = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoLike) {
+      const [, year, month, day] = isoLike;
+      return `${day}/${month}/${year}`;
+    }
+
+    const slash = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (slash) {
+      return value;
+    }
+
+    return value;
   }
 }

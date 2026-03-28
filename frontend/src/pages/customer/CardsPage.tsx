@@ -106,7 +106,7 @@ export function CardsPage() {
             </button>
             <h1 className="text-2xl font-bold text-gray-800">Thẻ Của Tôi</h1>
           </div>
-          {(cards?.length ?? 0) < 3 && (
+          {(cards?.length ?? 0) < 1 && (
             <button
               onClick={handleCreateClick}
               className="bg-blue-600 text-white px-6 py-2 rounded-xl font-medium hover:bg-blue-700 transition shadow-sm"
@@ -141,8 +141,8 @@ export function CardsPage() {
               Chưa có thẻ ảo
             </h3>
             <p className="text-gray-500 mb-6 max-w-sm mx-auto">
-              Bạn có thể mở tối đa 3 thẻ ảo để thực hiện các giao dịch trực
-              tuyến một cách an toàn.
+              Mỗi người dùng chỉ có 1 thẻ đang hoạt động để giảm rủi ro lộ thông
+              tin khi giao dịch trực tuyến.
             </p>
             <button
               onClick={handleCreateClick}

@@ -3,11 +3,13 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../auth/entities/user.entity';
 import { Customer } from '../customers/entities/customer.entity';
+import { Account } from '../accounts/entities/account.entity';
 import { AuditService } from '../../audit/audit.service';
 import { MaskingEngine } from '../../masking/masking.engine';
 import { AesService } from '../../crypto/services/aes.service';
@@ -31,6 +33,7 @@ export class AdminService {
   constructor(
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
+    @InjectRepository(Account) private accountRepo: Repository<Account>,
     private audit: AuditService,
     private masking: MaskingEngine,
     private aes: AesService,
@@ -51,6 +54,13 @@ export class AdminService {
         const customer = await this.customerRepo.findOne({
           where: { userId: u.id },
         });
+
+        const account = customer
+          ? await this.accountRepo.findOne({
+              where: { customerId: customer.id, isActive: 1 },
+              order: { createdAt: 'DESC' },
+            })
+          : null;
 
         const decryptAndMask = async (
           value: Buffer | null | undefined,
@@ -89,6 +99,13 @@ export class AdminService {
           cccd,
           dateOfBirth,
           address,
+          accountNumber: account?.accountNumber
+            ? this.masking.mask(
+                account.accountNumber,
+                'account_number',
+                Role.ADMIN,
+              )
+            : null,
           createdAt: u.createdAt,
         };
       }),
@@ -114,6 +131,18 @@ export class AdminService {
     const target = await this.userRepo.findOne({ where: { id: userId } });
     if (!target) throw new NotFoundException('Không tìm thấy người dùng');
 
+    if (target.id === adminId) {
+      throw new ForbiddenException(
+        'Không thể khóa/mở khóa chính tài khoản admin hiện tại',
+      );
+    }
+
+    if (target.role === 'admin') {
+      throw new ForbiddenException(
+        'Không thể khóa/mở khóa tài khoản quản trị viên',
+      );
+    }
+
     await this.userRepo.update(userId, { isActive: isActive ? 1 : 0 });
 
     // Nếu mở khóa thì reset bộ đếm PIN sai
@@ -134,7 +163,38 @@ export class AdminService {
       ip,
       `isActive: ${isActive}, reason: ${reason}`,
     );
-    return { message: `Tài khoản đã được ${isActive ? 'mở khoá' : 'khoá'}` };
+
+    let warning: string | null = null;
+    if (!isActive) {
+      const customer = await this.customerRepo.findOne({ where: { userId } });
+      const recipient = (target.email || customer?.email || '').trim();
+
+      if (!recipient) {
+        warning = 'Không có email hợp lệ để gửi thông báo khóa tài khoản';
+      } else {
+        try {
+          await this.mailService.sendAccountLockStatusEmail(
+            recipient,
+            target.username,
+            reason,
+          );
+        } catch {
+          warning = 'Đã khóa tài khoản nhưng không gửi được email thông báo';
+          await this.audit.log(
+            'ADMIN_DEACTIVATE_NOTIFY_FAIL',
+            adminId,
+            userId,
+            ip,
+            `reason: ${reason}`,
+          );
+        }
+      }
+    }
+
+    return {
+      message: `Tài khoản đã được ${isActive ? 'mở khoá' : 'khoá'}`,
+      ...(warning ? { warning } : {}),
+    };
   }
 
   async changeUserRole(
@@ -212,15 +272,57 @@ export class AdminService {
     const target = await this.userRepo.findOne({ where: { id: userId } });
     if (!target) throw new NotFoundException('Không tìm thấy người dùng');
 
+    if (target.id === adminId) {
+      throw new ForbiddenException(
+        'Không thể reset mật khẩu chính tài khoản admin hiện tại',
+      );
+    }
+
+    if (target.role === 'admin') {
+      throw new ForbiddenException(
+        'Không thể reset mật khẩu tài khoản quản trị viên',
+      );
+    }
+
+    const customer = await this.customerRepo.findOne({ where: { userId } });
+    const recipient = (target.email || customer?.email || '').trim();
+    if (!recipient) {
+      throw new BadRequestException(
+        'Người dùng chưa có email hợp lệ để nhận mật khẩu tạm thời',
+      );
+    }
+
+    const oldPasswordHash = target.passwordHash;
+    const oldForcePasswordChange = target.forcePasswordChange;
+
     const tempPassword = this.generateTemporaryPassword();
     target.passwordHash = this.pbkdf2.hashSecret(tempPassword, 'password');
     target.forcePasswordChange = 1;
     await this.userRepo.save(target);
 
-    await this.mailService.sendTemporaryPasswordEmail(
-      target.email,
-      tempPassword,
-    );
+    try {
+      await this.mailService.sendTemporaryPasswordEmail(
+        recipient,
+        tempPassword,
+        reason,
+      );
+    } catch {
+      target.passwordHash = oldPasswordHash;
+      target.forcePasswordChange = oldForcePasswordChange;
+      await this.userRepo.save(target);
+
+      await this.audit.log(
+        'ADMIN_RESET_PASSWORD_FAIL',
+        adminId,
+        userId,
+        ip,
+        `reason: ${reason}, mail delivery failed`,
+      );
+
+      throw new BadRequestException(
+        'Không thể gửi email mật khẩu tạm thời. Vui lòng kiểm tra email hoặc cấu hình SMTP.',
+      );
+    }
 
     await this.audit.log(
       'ADMIN_RESET_PASSWORD',
@@ -231,6 +333,57 @@ export class AdminService {
     );
 
     return { message: 'Đã reset mật khẩu và gửi email cho người dùng' };
+  }
+
+  async changeAdminSecurityPin(
+    adminId: string,
+    currentPassword: string,
+    currentPin: string,
+    newPin: string,
+    confirmPin: string,
+    ip: string,
+  ) {
+    if (!/^[\d]{6}$/.test(currentPin) || !/^[\d]{6}$/.test(newPin)) {
+      throw new BadRequestException('PIN phải gồm đúng 6 chữ số');
+    }
+
+    if (newPin !== confirmPin) {
+      throw new BadRequestException('PIN xác nhận không khớp');
+    }
+
+    const admin = await this.userRepo.findOne({ where: { id: adminId } });
+    if (!admin || admin.role !== 'admin') {
+      throw new ForbiddenException('Không có quyền thực hiện thao tác này');
+    }
+
+    if (!admin.adminPinHash) {
+      throw new BadRequestException('Admin chưa thiết lập PIN bảo mật');
+    }
+
+    if (!this.pbkdf2.verifySecret(currentPassword, admin.passwordHash)) {
+      throw new UnauthorizedException('Mật khẩu hiện tại không đúng');
+    }
+
+    if (!this.pbkdf2.verifySecret(currentPin, admin.adminPinHash)) {
+      throw new ForbiddenException('PIN hiện tại không đúng');
+    }
+
+    if (this.pbkdf2.verifySecret(newPin, admin.adminPinHash)) {
+      throw new BadRequestException('PIN mới phải khác PIN hiện tại');
+    }
+
+    admin.adminPinHash = this.pbkdf2.hashSecret(newPin, 'pin');
+    await this.userRepo.save(admin);
+
+    await this.audit.log(
+      'ADMIN_CHANGE_SECURITY_PIN',
+      adminId,
+      adminId,
+      ip,
+      'Admin changed security PIN',
+    );
+
+    return { message: 'Đổi PIN admin thành công' };
   }
 
   async getAuditLogs(

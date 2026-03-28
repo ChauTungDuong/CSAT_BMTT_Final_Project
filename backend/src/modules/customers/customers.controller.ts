@@ -39,19 +39,13 @@ export class CustomersController {
   // Xem hồ sơ của mình (customer)
   @Get('me')
   @Roles(Role.CUSTOMER)
-  async getMyProfile(
-    @Req() req: any,
-    @Query('pinVerified') pinVerified?: string,
-    @Query('viewToken') viewToken?: string,
-  ) {
-    const isPinVerified = pinVerified === 'true';
+  async getMyProfile(@Req() req: any, @Query('viewToken') viewToken?: string) {
     const customerId = await this.service.getCustomerIdByUserId(req.user.sub);
     if (!customerId) throw new NotFoundException('Hồ sơ chưa được tạo');
     return this.service.getProfile(
       customerId,
       req.user.sub,
       Role.CUSTOMER,
-      isPinVerified,
       req.ip,
       viewToken,
     );
@@ -60,10 +54,20 @@ export class CustomersController {
   // Cập nhật hồ sơ
   @Put('me')
   @Roles(Role.CUSTOMER)
-  async updateMyProfile(@Body() dto: UpdateCustomerDto, @Req() req: any) {
+  async updateMyProfile(
+    @Body() dto: UpdateCustomerDto,
+    @Req() req: any,
+    @Query('viewToken') viewToken?: string,
+  ) {
     const customerId = await this.service.getCustomerIdByUserId(req.user.sub);
     if (!customerId) throw new NotFoundException('Hồ sơ chưa được tạo');
-    return this.service.updateProfile(customerId, req.user.sub, dto, req.ip);
+    return this.service.updateProfile(
+      customerId,
+      req.user.sub,
+      dto,
+      req.ip,
+      viewToken,
+    );
   }
 
   // Xác thực PIN để xem full info
@@ -117,18 +121,46 @@ export class CustomersController {
   // Đặt/đổi PIN
   @Put('me/pin')
   @Roles(Role.CUSTOMER)
-  async setPin(
-    @Body() body: { pin: string; oldPin?: string },
+  async setPin(@Body() body: { pin: string }, @Req() req: any) {
+    const customerId = await this.service.getCustomerIdByUserId(req.user.sub);
+    if (!customerId) throw new NotFoundException('Hồ sơ chưa được tạo');
+    return this.service.setPin(customerId, req.user.sub, body.pin, req.ip);
+  }
+
+  @Post('me/pin/change/request-otp')
+  @Roles(Role.CUSTOMER)
+  @HttpCode(HttpStatus.OK)
+  async requestPinChangeOtp(
+    @Body() body: { currentPassword: string; currentPin: string },
     @Req() req: any,
   ) {
     const customerId = await this.service.getCustomerIdByUserId(req.user.sub);
     if (!customerId) throw new NotFoundException('Hồ sơ chưa được tạo');
-    return this.service.setPin(
+    return this.service.requestPinChangeOtp(
       customerId,
       req.user.sub,
-      body.pin,
+      body.currentPassword,
+      body.currentPin,
       req.ip,
-      body.oldPin,
+    );
+  }
+
+  @Put('me/pin/change/confirm')
+  @Roles(Role.CUSTOMER)
+  @HttpCode(HttpStatus.OK)
+  async confirmPinChange(
+    @Body() body: { otp: string; newPin: string; confirmPin: string },
+    @Req() req: any,
+  ) {
+    const customerId = await this.service.getCustomerIdByUserId(req.user.sub);
+    if (!customerId) throw new NotFoundException('Hồ sơ chưa được tạo');
+    return this.service.confirmPinChangeOtp(
+      customerId,
+      req.user.sub,
+      body.otp,
+      body.newPin,
+      body.confirmPin,
+      req.ip,
     );
   }
 
@@ -140,7 +172,6 @@ export class CustomersController {
       id,
       req.user.sub,
       req.user.role as Role,
-      false,
       req.ip,
       undefined,
     );

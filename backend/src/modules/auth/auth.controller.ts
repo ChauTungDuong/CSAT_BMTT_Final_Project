@@ -61,4 +61,42 @@ export class AuthController {
       req.ip,
     );
   }
+
+  @Post('forgot-password/request')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ auth: { limit: 5, ttl: 900000 } })
+  requestForgotPasswordOtp(
+    @Body() body: { username: string; email: string },
+    @Req() req: any,
+  ) {
+    return this.authService.requestForgotPasswordOtp(
+      body.username,
+      body.email,
+      req.ip,
+    );
+  }
+
+  @Post('forgot-password/confirm')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ auth: { limit: 5, ttl: 900000 } })
+  confirmForgotPassword(
+    @Body()
+    body: {
+      username: string;
+      email: string;
+      otp: string;
+      newPassword: string;
+      confirmPassword: string;
+    },
+    @Req() req: any,
+  ) {
+    return this.authService.confirmForgotPassword(
+      body.username,
+      body.email,
+      body.otp,
+      body.newPassword,
+      body.confirmPassword,
+      req.ip,
+    );
+  }
 }

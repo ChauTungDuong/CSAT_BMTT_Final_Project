@@ -12,6 +12,7 @@ import { Customer } from '../customers/entities/customer.entity';
 import { Account } from '../accounts/entities/account.entity';
 import { CryptoModule } from '../../crypto/crypto.module';
 import { AuditModule } from '../../audit/audit.module';
+import { MailService } from '../customers/mail.service';
 
 @Module({
   imports: [
@@ -31,7 +32,7 @@ import { AuditModule } from '../../audit/audit.module';
     }),
     AuditModule,
   ],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, MailService],
   controllers: [AuthController],
   exports: [AuthService],
 })

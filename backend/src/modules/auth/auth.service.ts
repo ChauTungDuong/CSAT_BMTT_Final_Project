@@ -17,9 +17,20 @@ import { LoginDto } from './dto/login.dto';
 import { AuditService } from '../../audit/audit.service';
 import { AesService } from '../../crypto/services/aes.service';
 import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
+import { MailService } from '../customers/mail.service';
 
 @Injectable()
 export class AuthService {
+  private readonly forgotPasswordOtps = new Map<
+    string,
+    {
+      otpHash: string;
+      email: string;
+      expiresAt: number;
+      failedAttempts: number;
+    }
+  >();
+
   constructor(
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
@@ -28,6 +39,7 @@ export class AuthService {
     private auditService: AuditService,
     private aesService: AesService,
     private pbkdf2: Pbkdf2Service,
+    private mailService: MailService,
   ) {}
 
   async register(dto: RegisterDto, ip: string) {
@@ -143,7 +155,31 @@ export class AuthService {
       ? this.pbkdf2.verifySecret(dto.password, user.passwordHash)
       : false;
 
-    if (!user || !isValid || !user.isActive) {
+    // Chỉ trả trạng thái khóa khi password đúng để giảm khả năng dò thông tin tài khoản
+    if (user && isValid && !user.isActive) {
+      let lockMessage = 'Tài khoản đã bị khóa bởi quản trị viên';
+
+      if (user.role === 'customer') {
+        const customer = await this.customerRepo.findOne({
+          where: { userId: user.id },
+        });
+        if (customer?.pinLocked) {
+          lockMessage =
+            'Tài khoản đã bị khóa do nhập sai mã PIN quá 5 lần. Vui lòng liên hệ quản trị viên để mở khóa';
+        }
+      }
+
+      await this.auditService.log(
+        'LOGIN_FAIL_LOCKED',
+        user.id,
+        null,
+        ip,
+        `Locked account login: ${dto.username}`,
+      );
+      throw new UnauthorizedException(lockMessage);
+    }
+
+    if (!user || !isValid) {
       await this.auditService.log(
         'LOGIN_FAIL',
         user?.id || null,
@@ -184,6 +220,7 @@ export class AuthService {
       fullName: user.fullName,
       email: user.email,
       forcePasswordChange: !!user.forcePasswordChange,
+      hasAdminPin: user.role === 'admin' ? !!user.adminPinHash : undefined,
     };
   }
 
@@ -193,10 +230,184 @@ export class AuthService {
   ) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Không tìm thấy người dùng');
-    if (data.fullName !== undefined) user.fullName = data.fullName;
-    if (data.email !== undefined) user.email = data.email;
+
+    const customer = await this.customerRepo.findOne({ where: { userId } });
+
+    if (data.fullName !== undefined) {
+      const normalizedName = data.fullName.trim();
+      if (!normalizedName) {
+        throw new BadRequestException('Họ và tên không được để trống');
+      }
+      user.fullName = normalizedName;
+      if (customer) customer.fullName = normalizedName;
+    }
+
+    if (data.email !== undefined) {
+      const normalizedEmail = data.email.trim().toLowerCase();
+      if (!normalizedEmail) {
+        throw new BadRequestException('Email không được để trống');
+      }
+
+      const existingEmail = await this.userRepo
+        .createQueryBuilder('u')
+        .where('LOWER(u.email) = :email', { email: normalizedEmail })
+        .andWhere('u.id != :id', { id: userId })
+        .getOne();
+
+      if (existingEmail) {
+        throw new ConflictException('Email đã tồn tại');
+      }
+
+      user.email = normalizedEmail;
+      if (customer) customer.email = normalizedEmail;
+    }
+
     await this.userRepo.save(user);
+    if (customer) {
+      await this.customerRepo.save(customer);
+    }
+
     return { message: 'Cập nhật hồ sơ thành công' };
+  }
+
+  async requestForgotPasswordOtp(username: string, email: string, ip: string) {
+    const safeMessage =
+      'Nếu thông tin hợp lệ, OTP đặt lại mật khẩu đã được gửi tới email đã đăng ký.';
+
+    const normalizedUsername = (username || '').trim();
+    const normalizedEmail = (email || '').trim().toLowerCase();
+
+    if (!normalizedUsername || !normalizedEmail) {
+      throw new BadRequestException('Vui lòng nhập tên đăng nhập và email');
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { username: normalizedUsername },
+    });
+
+    if (!user || (user.email || '').trim().toLowerCase() !== normalizedEmail) {
+      await this.auditService.log(
+        'FORGOT_PASSWORD_REQUEST',
+        user?.id || null,
+        null,
+        ip,
+        `Invalid identity proof for username: ${normalizedUsername}`,
+      );
+      return { message: safeMessage };
+    }
+
+    const otp = this.generateOtpCode();
+    this.forgotPasswordOtps.set(user.id, {
+      otpHash: this.pbkdf2.hashSecret(otp, 'pin'),
+      email: normalizedEmail,
+      expiresAt: Date.now() + 5 * 60 * 1000,
+      failedAttempts: 0,
+    });
+
+    try {
+      await this.mailService.sendPasswordResetOtpEmail(normalizedEmail, otp);
+    } catch {
+      this.forgotPasswordOtps.delete(user.id);
+      throw new BadRequestException(
+        'Không thể gửi OTP lúc này. Vui lòng thử lại sau.',
+      );
+    }
+
+    await this.auditService.log(
+      'FORGOT_PASSWORD_OTP_SENT',
+      user.id,
+      user.id,
+      ip,
+      'Password reset OTP sent',
+    );
+
+    return {
+      message: safeMessage,
+      otpExpiresInSeconds: 300,
+    };
+  }
+
+  async confirmForgotPassword(
+    username: string,
+    email: string,
+    otp: string,
+    newPassword: string,
+    confirmPassword: string,
+    ip: string,
+  ) {
+    const normalizedUsername = (username || '').trim();
+    const normalizedEmail = (email || '').trim().toLowerCase();
+
+    if (!normalizedUsername || !normalizedEmail) {
+      throw new BadRequestException('Thông tin xác thực không hợp lệ');
+    }
+
+    if (!/^[0-9]{6}$/.test(otp || '')) {
+      throw new BadRequestException('OTP không hợp lệ');
+    }
+
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('Mật khẩu mới phải từ 8 ký tự');
+    }
+
+    if (newPassword !== confirmPassword) {
+      throw new BadRequestException('Xác nhận mật khẩu không khớp');
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { username: normalizedUsername },
+    });
+    if (!user || (user.email || '').trim().toLowerCase() !== normalizedEmail) {
+      throw new BadRequestException('Thông tin xác thực không hợp lệ');
+    }
+
+    const session = this.forgotPasswordOtps.get(user.id);
+    if (!session || session.email !== normalizedEmail) {
+      throw new BadRequestException('OTP không hợp lệ hoặc đã hết hạn');
+    }
+
+    if (Date.now() > session.expiresAt) {
+      this.forgotPasswordOtps.delete(user.id);
+      throw new BadRequestException('OTP không hợp lệ hoặc đã hết hạn');
+    }
+
+    if (!this.pbkdf2.verifySecret(otp, session.otpHash)) {
+      session.failedAttempts += 1;
+      if (session.failedAttempts >= 5) {
+        this.forgotPasswordOtps.delete(user.id);
+      } else {
+        this.forgotPasswordOtps.set(user.id, session);
+      }
+
+      await this.auditService.log(
+        'FORGOT_PASSWORD_CONFIRM_FAIL',
+        user.id,
+        user.id,
+        ip,
+        'Wrong OTP',
+      );
+
+      throw new BadRequestException('OTP không đúng');
+    }
+
+    if (this.pbkdf2.verifySecret(newPassword, user.passwordHash)) {
+      throw new BadRequestException('Mật khẩu mới phải khác mật khẩu hiện tại');
+    }
+
+    user.passwordHash = this.pbkdf2.hashSecret(newPassword, 'password');
+    user.forcePasswordChange = 0;
+    await this.userRepo.save(user);
+    this.forgotPasswordOtps.delete(user.id);
+
+    await this.auditService.log(
+      'FORGOT_PASSWORD_SUCCESS',
+      user.id,
+      user.id,
+      ip,
+      'Password reset via OTP',
+    );
+
+    return { message: 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.' };
   }
 
   async changePassword(
@@ -240,5 +451,9 @@ export class AuthService {
     );
 
     return { message: 'Đổi mật khẩu thành công' };
+  }
+
+  private generateOtpCode() {
+    return `${crypto.randomInt(0, 1_000_000)}`.padStart(6, '0');
   }
 }

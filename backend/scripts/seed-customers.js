@@ -1,13 +1,57 @@
-// Chạy: node scripts/seed-customers.js
-// Yêu cầu: .env đã được cấu hình, Oracle đang chạy, backend đã npm install
-// Khi chạy ngoài Docker: DB_HOST tự động đổi sang localhost nếu hostname 'oracle' không dùng được
+// Usage:
+//   node scripts/seed-customers.js --mode=cloud
+//   node scripts/seed-customers.js --mode=local
+const path = require('path');
 
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+const envFile = process.env.ENV_FILE
+  ? path.resolve(process.cwd(), process.env.ENV_FILE)
+  : path.join(__dirname, '../.env');
+require('dotenv').config({ path: envFile });
 
-// Nếu DB_HOST là 'oracle' (tên Docker service), đổi thành 'localhost' khi chạy ngoài container
-if (!process.env.RUNNING_IN_DOCKER && process.env.DB_HOST === 'oracle') {
-  process.env.DB_HOST = 'localhost';
-  console.log('ℹ️  Chạy ngoài Docker — đổi DB_HOST từ "oracle" → "localhost"');
+const args = process.argv.slice(2);
+function getArgValue(flagName) {
+  const prefix = `${flagName}=`;
+  const match = args.find((arg) => arg.startsWith(prefix));
+  return match ? match.slice(prefix.length) : undefined;
+}
+
+const runtimeMode = (
+  getArgValue('--mode') ||
+  process.env.DB_CONNECTION_MODE ||
+  'cloud'
+)
+  .toLowerCase()
+  .trim();
+
+function buildConnectionOptions() {
+  if (runtimeMode === 'local') {
+    let host = process.env.DB_HOST || 'localhost';
+    if (!process.env.RUNNING_IN_DOCKER && host === 'oracle') {
+      host = 'localhost';
+    }
+    const port = process.env.DB_PORT || '1521';
+    const service = process.env.DB_SERVICE || 'XEPDB1';
+    return {
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      connectString: `${host}:${port}/${service}`,
+    };
+  }
+
+  if (!process.env.WALLET_PATH || !process.env.TNS_NAME) {
+    throw new Error(
+      'Cloud mode requires WALLET_PATH and TNS_NAME in environment file',
+    );
+  }
+
+  return {
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    connectString: process.env.TNS_NAME,
+    configDir: process.env.WALLET_PATH,
+    walletLocation: process.env.WALLET_PATH,
+    walletPassword: process.env.WALLET_PASSWORD,
+  };
 }
 const crypto = require('crypto');
 const oracledb = require('oracledb');
@@ -87,11 +131,8 @@ function encrypt(plaintext) {
 }
 
 async function seed() {
-  const conn = await oracledb.getConnection({
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    connectString: `${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_SERVICE}`,
-  });
+  console.log(`Running seed in mode: ${runtimeMode}`);
+  const conn = await oracledb.getConnection(buildConnectionOptions());
 
   const pinHash = hashSecret('123456', 'pin');
   const userPasswordHash = hashSecret('Password@123', 'password');

@@ -49,6 +49,27 @@ export class AdminController {
     return this.service.setAdminSecurityPin(req.user.sub, body.pin, req.ip);
   }
 
+  @Post('security/change-pin')
+  changeAdminPin(
+    @Body()
+    body: {
+      currentPassword: string;
+      currentPin: string;
+      newPin: string;
+      confirmPin: string;
+    },
+    @Req() req: any,
+  ) {
+    return this.service.changeAdminSecurityPin(
+      req.user.sub,
+      body.currentPassword,
+      body.currentPin,
+      body.newPin,
+      body.confirmPin,
+      req.ip,
+    );
+  }
+
   @Post('users/:id/reset-password')
   resetUserPassword(
     @Param('id') id: string,

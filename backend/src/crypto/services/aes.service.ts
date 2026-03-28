@@ -14,7 +14,6 @@ import { CryptoTraceContextService } from './crypto-trace-context.service';
 export class AesService implements ICryptoService {
   private readonly logger = new Logger(AesService.name);
   private readonly masterKey: Buffer;
-  private readonly hmacSecret: Buffer;
 
   constructor(
     private readonly config: ConfigService,
@@ -22,15 +21,11 @@ export class AesService implements ICryptoService {
     private readonly traceContext: CryptoTraceContextService,
   ) {
     const keyHex = config.getOrThrow<string>('AES_MASTER_KEY');
-    const hmacHex = config.getOrThrow<string>('HMAC_SECRET');
 
     if (keyHex.length !== 64)
       throw new Error('AES_MASTER_KEY phải là 64 hex chars (32 bytes)');
-    if (hmacHex.length !== 64)
-      throw new Error('HMAC_SECRET phải là 64 hex chars (32 bytes)');
 
     this.masterKey = Buffer.from(keyHex, 'hex');
-    this.hmacSecret = Buffer.from(hmacHex, 'hex');
   }
 
   async encrypt(plaintext: string): Promise<CellValue> {
@@ -79,35 +74,13 @@ export class AesService implements ICryptoService {
       status: 'success',
     });
 
-    // HMAC trên toàn bộ ciphertext + IV + tag để detect tampering
-    const hmac = crypto
-      .createHmac('sha256', this.hmacSecret)
-      .update(`${payloadB64}.${ivB64}.${tagB64}`)
-      .digest('hex');
-
     const cell = {
       type: 'encrypted',
       algo: 'aes-256-gcm',
       payload: payloadB64,
       iv: ivB64,
       tag: tagB64,
-      hmac,
     } as EncryptedCell;
-
-    // Log: HMAC verification & final result
-    this.cryptoLog.addLog({
-      actionId,
-      userId,
-      actionName,
-      operation: 'encrypt',
-      layer: 'HMAC',
-      input: payloadB64,
-      output: payloadB64,
-      iv: ivB64,
-      tag: tagB64,
-      keySnippet,
-      status: 'success',
-    });
 
     return cell;
   }
@@ -137,50 +110,7 @@ export class AesService implements ICryptoService {
       status: 'success',
     });
 
-    // 1. Verify HMAC trước khi decrypt
-    const expectedHmac = crypto
-      .createHmac('sha256', this.hmacSecret)
-      .update(`${enc.payload}.${enc.iv}.${enc.tag}`)
-      .digest('hex');
-
-    const authTagVerified = expectedHmac === enc.hmac;
-
-    if (!authTagVerified) {
-      this.logger.error('HMAC mismatch — dữ liệu có thể bị giả mạo');
-      this.cryptoLog.addLog({
-        actionId,
-        userId,
-        actionName,
-        operation: 'decrypt',
-        layer: 'HMAC',
-        input: enc.payload,
-        output: enc.payload,
-        iv: enc.iv,
-        tag: enc.tag,
-        authTag: 'false',
-        keySnippet,
-        status: 'failure',
-      });
-      return null; // KHÔNG throw để tránh timing attack
-    }
-
-    // Log: HMAC verification success
-    this.cryptoLog.addLog({
-      actionId,
-      userId,
-      actionName,
-      operation: 'decrypt',
-      layer: 'HMAC',
-      input: enc.payload,
-      output: enc.payload,
-      iv: enc.iv,
-      tag: enc.tag,
-      authTag: 'true',
-      keySnippet,
-      status: 'success',
-    });
-
-    // 2. Decrypt bằng AES-GCM TypeScript thuần túy
+    // Decrypt bằng AES-GCM TypeScript thuần túy
     try {
       const plaintextBytes = decryptGCM(
         this.masterKey,

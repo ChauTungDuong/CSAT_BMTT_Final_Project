@@ -45,8 +45,15 @@ async function bootstrap() {
   );
 
   // CORS
+  const corsOrigins = [
+    process.env.FRONTEND_URL || 'http://localhost:3002',
+    ...(process.env.ENABLE_CRYPTO_MONITOR === 'true' && process.env.MONITOR_URL
+      ? [process.env.MONITOR_URL]
+      : []),
+  ];
+
   app.enableCors({
-    origin: process.env.FRONTEND_URL || 'https://localhost',
+    origin: corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
   });

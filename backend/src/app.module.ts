@@ -21,6 +21,47 @@ if (!globalAny.crypto || typeof globalAny.crypto.randomUUID !== 'function') {
   };
 }
 
+function buildOracleConfig(config: ConfigService) {
+  const connectionMode = (config.get<string>('DB_CONNECTION_MODE') || 'cloud')
+    .toLowerCase()
+    .trim();
+
+  const common = {
+    type: 'oracle' as const,
+    username: config.getOrThrow('DB_USER'),
+    password: config.getOrThrow('DB_PASSWORD'),
+    entities: [__dirname + '/**/*.entity{.ts,.js}'],
+    synchronize: false,
+    logging: config.get('NODE_ENV') === 'development',
+  };
+
+  if (connectionMode === 'local') {
+    return {
+      ...common,
+      host: config.getOrThrow('DB_HOST'),
+      port: +config.getOrThrow('DB_PORT'),
+      serviceName: config.getOrThrow('DB_SERVICE'),
+      extra: {
+        poolMin: 2,
+        poolMax: 10,
+      },
+    };
+  }
+
+  const walletPath = config.getOrThrow('WALLET_PATH');
+  return {
+    ...common,
+    connectString: config.getOrThrow('TNS_NAME'),
+    extra: {
+      poolMin: 2,
+      poolMax: 10,
+      configDir: walletPath,
+      walletLocation: walletPath,
+      walletPassword: config.getOrThrow('WALLET_PASSWORD'),
+    },
+  };
+}
+
 @Module({
   imports: [
     // Biến môi trường
@@ -43,21 +84,7 @@ if (!globalAny.crypto || typeof globalAny.crypto.randomUUID !== 'function') {
     // Oracle connection
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'oracle',
-        host: config.getOrThrow('DB_HOST'),
-        port: +config.getOrThrow('DB_PORT'),
-        username: config.getOrThrow('DB_USER'),
-        password: config.getOrThrow('DB_PASSWORD'),
-        serviceName: config.getOrThrow('DB_SERVICE'),
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: false,
-        logging: config.get('NODE_ENV') === 'development',
-        extra: {
-          poolMin: 2,
-          poolMax: 10,
-        },
-      }),
+      useFactory: (config: ConfigService) => buildOracleConfig(config),
     }),
 
     // Business modules

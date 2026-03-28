@@ -16,6 +16,7 @@ interface UserRow {
   fullName?: string;
   email?: string;
   phone?: string;
+  accountNumber?: string;
   cccd?: string;
   dateOfBirth?: string;
   address?: string;
@@ -233,22 +234,25 @@ export function AdminDashboard() {
 
     try {
       if (actionModal.type === "toggle-status") {
-        await toggleStatus.mutateAsync({
+        const res = await toggleStatus.mutateAsync({
           userId: actionModal.user.id,
           isActive: !!actionModal.nextIsActive,
           adminPin,
           reason: reason.trim(),
         });
+        const warning = res?.data?.warning as string | undefined;
         setFeedback({
-          type: "success",
-          message: actionModal.nextIsActive
-            ? "Đã mở khóa tài khoản thành công."
-            : "Đã khóa tài khoản thành công.",
+          type: warning ? "error" : "success",
+          message:
+            warning ??
+            (actionModal.nextIsActive
+              ? "Đã mở khóa tài khoản thành công."
+              : "Đã khóa tài khoản thành công."),
         });
       }
 
       if (actionModal.type === "reset-password") {
-        await resetPassword.mutateAsync({
+        const res = await resetPassword.mutateAsync({
           userId: actionModal.user.id,
           adminPin,
           reason: reason.trim(),
@@ -256,6 +260,7 @@ export function AdminDashboard() {
         setFeedback({
           type: "success",
           message:
+            res?.data?.message ??
             "Đã reset mật khẩu và gửi mật khẩu tạm thời qua email người dùng.",
         });
       }
@@ -339,8 +344,8 @@ export function AdminDashboard() {
           <div className="px-6 py-4 border-b bg-blue-50">
             <h2 className="font-semibold text-gray-800">Quản lý tài khoản</h2>
             <p className="text-xs text-gray-500 mt-1">
-              Kích hoạt, khóa hoặc xóa tài khoản. Thông tin CCCD, ngày sinh, địa
-              chỉ được hiển thị ở mức đã che.
+              Kích hoạt, khóa hoặc reset mật khẩu tài khoản. Thông tin nhạy cảm
+              hiển thị theo chính sách bảo mật của hệ thống.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -354,19 +359,22 @@ export function AdminDashboard() {
                     Họ tên
                   </th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    Email (đã che)
+                    Email
                   </th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    SĐT (đã che)
+                    SĐT
                   </th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    Ngày sinh (đã che)
+                    Số tài khoản
                   </th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    CCCD (đã che)
+                    Ngày sinh
                   </th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
-                    Địa chỉ (đã che)
+                    CCCD
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                    Địa chỉ
                   </th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">
                     Vai trò
@@ -395,6 +403,9 @@ export function AdminDashboard() {
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">
                       {u.phone ?? "--"}
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                      {u.accountNumber ?? "--"}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-500">
                       {u.dateOfBirth ?? "--"}
@@ -428,49 +439,55 @@ export function AdminDashboard() {
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          onClick={() =>
-                            openActionModal({
-                              type: "toggle-status",
-                              user: u,
-                              nextIsActive: !u.isActive,
-                            })
-                          }
-                          disabled={toggleStatus.isPending}
-                          className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
-                            u.isActive
-                              ? "bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
-                              : "bg-green-100 text-green-700 hover:bg-green-200"
-                          }`}
-                        >
-                          {u.isActive ? "Khóa" : "Mở khóa"}
-                        </button>
-                        <button
-                          onClick={() =>
-                            openActionModal({
-                              type: "reset-password",
-                              user: u,
-                            })
-                          }
-                          disabled={resetPassword.isPending}
-                          className="px-3 py-1 rounded text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
-                        >
-                          Reset mật khẩu
-                        </button>
-                        <button
-                          onClick={() =>
-                            openActionModal({
-                              type: "view-details",
-                              user: u,
-                            })
-                          }
-                          disabled={openSensitiveView.isPending}
-                          className="px-3 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
-                        >
-                          Xem chi tiết
-                        </button>
-                      </div>
+                      {u.role === "admin" ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
+                          Bảo vệ tài khoản admin
+                        </span>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() =>
+                              openActionModal({
+                                type: "toggle-status",
+                                user: u,
+                                nextIsActive: !u.isActive,
+                              })
+                            }
+                            disabled={toggleStatus.isPending}
+                            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                              u.isActive
+                                ? "bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
+                                : "bg-green-100 text-green-700 hover:bg-green-200"
+                            }`}
+                          >
+                            {u.isActive ? "Khóa" : "Mở khóa"}
+                          </button>
+                          <button
+                            onClick={() =>
+                              openActionModal({
+                                type: "reset-password",
+                                user: u,
+                              })
+                            }
+                            disabled={resetPassword.isPending}
+                            className="px-3 py-1 rounded text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                          >
+                            Reset mật khẩu
+                          </button>
+                          <button
+                            onClick={() =>
+                              openActionModal({
+                                type: "view-details",
+                                user: u,
+                              })
+                            }
+                            disabled={openSensitiveView.isPending}
+                            className="px-3 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                          >
+                            Xem chi tiết
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}

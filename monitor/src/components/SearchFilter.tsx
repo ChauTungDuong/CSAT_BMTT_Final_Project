@@ -6,6 +6,7 @@ interface SearchFilterProps {
     operation: "all" | "encrypt" | "decrypt" | "mixed",
   ) => void;
   total: number;
+  onClear: () => Promise<void>;
 }
 
 export default function SearchFilter({
@@ -14,6 +15,7 @@ export default function SearchFilter({
   operationFilter,
   onOperationChange,
   total,
+  onClear,
 }: SearchFilterProps) {
   return (
     <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 grid md:grid-cols-3 gap-3">
@@ -33,8 +35,14 @@ export default function SearchFilter({
         <option value="decrypt">Giải mã</option>
         <option value="mixed">Hỗn hợp</option>
       </select>
-      <div className="text-sm text-slate-600 flex items-center justify-start md:justify-end">
-        Tổng: {total} nhóm log
+      <div className="text-sm text-slate-600 flex items-center justify-start md:justify-end gap-3">
+        <span>Tổng: {total} nhóm log</span>
+        <button
+          onClick={() => onClear().catch(console.error)}
+          className="px-3 py-2 rounded-lg border border-rose-300 text-rose-700 hover:bg-rose-50"
+        >
+          Xóa log
+        </button>
       </div>
     </section>
   );

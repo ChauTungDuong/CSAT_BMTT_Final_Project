@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Card } from '../accounts/entities/card.entity';
+import { Account } from '../accounts/entities/account.entity';
 import { Customer } from '../customers/entities/customer.entity';
 import { User } from '../auth/entities/user.entity';
 import { CardsService } from './cards.service';
@@ -11,7 +12,7 @@ import { MaskingModule } from '../../masking/masking.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Card, Customer, User]),
+    TypeOrmModule.forFeature([Card, Account, Customer, User]),
     CryptoModule,
     AuditModule,
     MaskingModule,

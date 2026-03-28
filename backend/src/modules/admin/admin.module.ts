@@ -8,10 +8,11 @@ import { AuditModule } from '../../audit/audit.module';
 import { MaskingModule } from '../../masking/masking.module';
 import { CryptoModule } from '../../crypto/crypto.module';
 import { MailService } from '../customers/mail.service';
+import { Account } from '../accounts/entities/account.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Customer]),
+    TypeOrmModule.forFeature([User, Customer, Account]),
     AuditModule,
     MaskingModule,
     CryptoModule,

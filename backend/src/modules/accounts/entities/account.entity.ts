@@ -17,15 +17,6 @@ export class Account {
   @Column({ name: 'BALANCE', type: 'blob' })
   balance: Buffer;
 
-  @Column({ name: 'CARD_NUMBER', type: 'blob', nullable: true })
-  cardNumber: Buffer | null;
-
-  @Column({ name: 'CVV', type: 'blob', nullable: true })
-  cvv: Buffer | null;
-
-  @Column({ name: 'CARD_EXPIRY', type: 'blob', nullable: true })
-  cardExpiry: Buffer | null;
-
   @Column({
     name: 'IS_ACTIVE',
     type: 'decimal',

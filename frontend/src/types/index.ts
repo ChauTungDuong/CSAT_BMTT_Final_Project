@@ -22,7 +22,7 @@ export interface Account {
   accountType: string;
   balance: string;
   balanceMasked: string;
-  cardNumber?: string;
+  isPinVerified?: boolean;
   createdAt: string;
 }
 

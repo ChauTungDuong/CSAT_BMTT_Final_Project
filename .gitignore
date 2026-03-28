@@ -2,6 +2,10 @@
 .env
 backend/.env
 backend/ssl/
+db-config.txt
+.env.prod
+.env.prod.*
+*.env.prod
 
 # Node
 node_modules/
@@ -25,3 +29,13 @@ Thumbs.db
 .vscode/
 *.suo
 *.user
+
+# Oracle wallet and sensitive client artifacts
+Wallet_CSATBM/
+*.sso
+*.p12
+*.jks
+*.pem
+sqlnet.ora
+tnsnames.ora
+ojdbc.properties

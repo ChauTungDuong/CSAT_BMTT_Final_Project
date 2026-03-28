@@ -23,14 +23,6 @@ export default function LogEntry({ log }: LogEntryProps) {
   }
   layerStr += ">";
 
-  // Truncate long values for display
-  const truncate = (str: string, len: number = 20) => {
-    if (str.length > len) {
-      return str.substring(0, len) + "...";
-    }
-    return str;
-  };
-
   const statusIcon = log.status === "success" ? "✓" : "✗";
   const statusColor =
     log.status === "success" ? "text-green-600" : "text-red-600";
@@ -54,23 +46,19 @@ export default function LogEntry({ log }: LogEntryProps) {
       <div className="text-gray-600 text-xs space-y-1">
         <div>
           <span className="font-semibold">Input:</span>{" "}
-          <span className="text-gray-700 break-all">{truncate(log.input)}</span>
+          <span className="text-gray-700 break-all">{log.input}</span>
         </div>
 
         {log.keySnippet && (
           <div>
             <span className="font-semibold">Key:</span>{" "}
-            <span className="text-gray-700 break-all">
-              {truncate(log.keySnippet)}
-            </span>
+            <span className="text-gray-700 break-all">{log.keySnippet}</span>
           </div>
         )}
 
         <div>
           <span className="font-semibold">Output:</span>{" "}
-          <span className="text-gray-700 break-all">
-            {truncate(log.output)}
-          </span>
+          <span className="text-gray-700 break-all">{log.output}</span>
         </div>
 
         {log.authTag && (
@@ -89,9 +77,7 @@ export default function LogEntry({ log }: LogEntryProps) {
         {log.tag && (
           <div>
             <span className="font-semibold">Tag:</span>{" "}
-            <span className="text-gray-700 break-all">
-              {truncate(log.tag, 16)}
-            </span>
+            <span className="text-gray-700 break-all">{log.tag}</span>
           </div>
         )}
       </div>

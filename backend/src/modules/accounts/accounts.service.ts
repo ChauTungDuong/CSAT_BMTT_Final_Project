@@ -23,7 +23,7 @@ export class AccountsService {
   ) {}
 
   // Lấy danh sách tài khoản của customer đang đăng nhập
-  async getMyAccounts(userId: string, isPinVerified: boolean, ip: string) {
+  async getMyAccounts(userId: string, ip: string) {
     const customer = await this.customerRepo.findOne({ where: { userId } });
     if (!customer) throw new NotFoundException('Hồ sơ chưa được tạo');
 
@@ -44,41 +44,21 @@ export class AccountsService {
         const balancePlain = await this.aes.decrypt(
           this.aes.deserialize(acc.balance as Buffer),
         );
-        const cardNumberPlain = acc.cardNumber
-          ? await this.aes.decrypt(
-              this.aes.deserialize(acc.cardNumber as Buffer),
-            )
-          : null;
 
         const balanceMasked = balancePlain
-          ? this.masking.mask(
-              balancePlain,
-              'balance',
-              Role.CUSTOMER,
-              isPinVerified,
-            )
+          ? this.masking.mask(balancePlain, 'balance', Role.CUSTOMER, false)
           : '••••••';
-        const cardNumberMasked = cardNumberPlain
-          ? this.masking.mask(
-              cardNumberPlain,
-              'card_number',
-              Role.CUSTOMER,
-              isPinVerified,
-            )
-          : null;
+
+        const formattedBalance = `${parseFloat(balancePlain || '0').toLocaleString('vi-VN')} đ`;
 
         return {
           id: acc.id,
-          accountNumber: this.masking.mask(
-            acc.accountNumber,
-            'account_number',
-            Role.CUSTOMER,
-            isPinVerified,
-          ),
+          // Số tài khoản là field độc lập, luôn hiển thị cho owner
+          accountNumber: acc.accountNumber,
           accountType: acc.accountType,
-          balance: `${parseFloat(balancePlain || '0').toLocaleString('vi-VN')} đ`,
+          balance: formattedBalance,
           balanceMasked,
-          cardNumber: cardNumberMasked,
+          isPinVerified: false,
           createdAt: acc.createdAt,
         };
       }),

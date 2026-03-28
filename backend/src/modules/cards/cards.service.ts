@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as crypto from 'crypto';
 import { Card } from '../accounts/entities/card.entity';
+import { Account } from '../accounts/entities/account.entity';
 import { Customer } from '../customers/entities/customer.entity';
 import { User } from '../auth/entities/user.entity';
 import { AesService } from '../../crypto/services/aes.service';
@@ -21,6 +22,7 @@ import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
 export class CardsService {
   constructor(
     @InjectRepository(Card) private cardRepo: Repository<Card>,
+    @InjectRepository(Account) private accountRepo: Repository<Account>,
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
     @InjectRepository(User) private userRepo: Repository<User>,
     private aes: AesService,
@@ -78,12 +80,22 @@ export class CardsService {
       await this.customerRepo.save(customer);
     }
 
-    // Kiểm tra giới hạn 3 thẻ
-    const cardCount = await this.cardRepo.count({
+    const account = await this.accountRepo.findOne({
+      where: { id: dto.accountId, customerId: customer.id, isActive: 1 },
+    });
+    if (!account) {
+      throw new BadRequestException(
+        'Tài khoản không hợp lệ hoặc không thuộc về bạn',
+      );
+    }
+
+    const activeCard = await this.cardRepo.findOne({
       where: { customerId: customer.id, isActive: 1 },
     });
-    if (cardCount >= 3) {
-      throw new BadRequestException('Bạn chỉ được phép mở tối đa 3 thẻ ảo');
+    if (activeCard) {
+      throw new BadRequestException(
+        'Mỗi người dùng chỉ được phép có 1 thẻ đang hoạt động',
+      );
     }
 
     // Tạo thông tin thẻ ngẫu nhiên

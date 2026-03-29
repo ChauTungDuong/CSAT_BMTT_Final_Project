@@ -87,6 +87,7 @@ function parseApiMessage(err: any, fallback: string) {
 
 export function AdminDashboard() {
   const qc = useQueryClient();
+  const [searchKeyword, setSearchKeyword] = useState("");
   const [actionModal, setActionModal] = useState<ActionModalState | null>(null);
   const [adminPin, setAdminPin] = useState("");
   const [reason, setReason] = useState("");
@@ -110,8 +111,17 @@ export function AdminDashboard() {
   });
 
   const { data: users } = useQuery<PagedUsers>({
-    queryKey: ["admin-users"],
-    queryFn: async () => (await api.get("/admin/users?page=1&limit=50")).data,
+    queryKey: ["admin-users", searchKeyword],
+    queryFn: async () =>
+      (
+        await api.get(
+          `/admin/users?page=1&limit=50${
+            searchKeyword.trim()
+              ? `&q=${encodeURIComponent(searchKeyword.trim())}`
+              : ""
+          }`,
+        )
+      ).data,
   });
 
   const toggleStatus = useMutation({
@@ -293,7 +303,7 @@ export function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <div className="w-full px-4 lg:px-6 py-8">
         {feedback && (
           <div
             className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
@@ -347,42 +357,51 @@ export function AdminDashboard() {
               Kích hoạt, khóa hoặc reset mật khẩu tài khoản. Thông tin nhạy cảm
               hiển thị theo chính sách bảo mật của hệ thống.
             </p>
+            <div className="mt-3">
+              <input
+                type="text"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                placeholder="Tìm theo tên đăng nhập hoặc số tài khoản"
+                className="w-full md:w-[420px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div>
+            <table className="w-full table-fixed text-xs lg:text-sm">
               <thead className="bg-gray-50 border-b">
                 <tr>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  <th className="w-[10%] text-left px-2 py-3 font-medium text-gray-600">
                     Tên đăng nhập
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  <th className="w-[8%] text-left px-2 py-3 font-medium text-gray-600">
                     Họ tên
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  <th className="w-[15%] text-left px-2 py-3 font-medium text-gray-600">
                     Email
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  <th className="w-[7%] text-left px-2 py-3 font-medium text-gray-600">
                     SĐT
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  <th className="w-[8%] text-left px-2 py-3 font-medium text-gray-600">
                     Số tài khoản
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  <th className="w-[7%] text-left px-2 py-3 font-medium text-gray-600">
                     Ngày sinh
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  <th className="w-[8%] text-left px-2 py-3 font-medium text-gray-600">
                     CCCD
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  <th className="w-[8%] text-left px-2 py-3 font-medium text-gray-600">
                     Địa chỉ
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  <th className="w-[6%] text-left px-2 py-3 font-medium text-gray-600">
                     Vai trò
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  <th className="w-[6%] text-left px-2 py-3 font-medium text-gray-600">
                     Trạng thái
                   </th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">
+                  <th className="w-[17%] text-left px-2 py-3 font-medium text-gray-600">
                     Thao tác
                   </th>
                 </tr>
@@ -390,33 +409,33 @@ export function AdminDashboard() {
               <tbody className="divide-y divide-gray-100">
                 {users?.items.map((u) => (
                   <tr key={u.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs">
+                    <td className="px-2 py-3 font-mono text-[11px] break-all">
                       {u.username}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-3 text-[11px]">
                       {u.fullName ?? (
                         <span className="text-gray-400 italic">--</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                    <td className="px-2 py-3 font-mono text-[11px] text-gray-500 break-all">
                       {u.email ?? "--"}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                    <td className="px-2 py-3 font-mono text-[11px] text-gray-500 break-all">
                       {u.phone ?? "--"}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                    <td className="px-2 py-3 font-mono text-[11px] text-gray-500 break-all">
                       {u.accountNumber ?? "--"}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                    <td className="px-2 py-3 font-mono text-[11px] text-gray-500">
                       {u.dateOfBirth ?? "--"}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-gray-500">
+                    <td className="px-2 py-3 font-mono text-[11px] text-gray-500 break-all">
                       {u.cccd ?? "--"}
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-500 max-w-[220px] truncate">
+                    <td className="px-2 py-3 text-[11px] text-gray-500 break-words">
                       {u.address ?? "--"}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-3">
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                           u.role === "admin"
@@ -427,7 +446,7 @@ export function AdminDashboard() {
                         {roleLabel[u.role] ?? u.role}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-3">
                       <span
                         className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                           u.isActive
@@ -438,11 +457,11 @@ export function AdminDashboard() {
                         {u.isActive ? "Hoạt động" : "Bị khóa"}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-3 align-top">
                       {u.role === "admin" ? (
                         <span className="text-gray-400 italic">--</span>
                       ) : (
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-col gap-1.5">
                           <button
                             onClick={() =>
                               openActionModal({
@@ -452,7 +471,7 @@ export function AdminDashboard() {
                               })
                             }
                             disabled={toggleStatus.isPending}
-                            className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                            className={`w-full px-2 py-1.5 rounded text-[11px] font-medium transition-colors whitespace-nowrap ${
                               u.isActive
                                 ? "bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
                                 : "bg-green-100 text-green-700 hover:bg-green-200"
@@ -468,7 +487,7 @@ export function AdminDashboard() {
                               })
                             }
                             disabled={resetPassword.isPending}
-                            className="px-3 py-1 rounded text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
+                            className="w-full px-2 py-1.5 rounded text-[11px] font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors whitespace-nowrap"
                           >
                             Reset mật khẩu
                           </button>
@@ -480,7 +499,7 @@ export function AdminDashboard() {
                               })
                             }
                             disabled={openSensitiveView.isPending}
-                            className="px-3 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
+                            className="w-full px-2 py-1.5 rounded text-[11px] font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors whitespace-nowrap"
                           >
                             Xem chi tiết
                           </button>

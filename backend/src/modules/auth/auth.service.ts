@@ -16,6 +16,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuditService } from '../../audit/audit.service';
 import { AesService } from '../../crypto/services/aes.service';
+import { AccountCryptoService } from '../../crypto/services/account-crypto.service';
 import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
 import { MailService } from '../customers/mail.service';
 
@@ -38,6 +39,7 @@ export class AuthService {
     private jwtService: JwtService,
     private auditService: AuditService,
     private aesService: AesService,
+    private accountCrypto: AccountCryptoService,
     private pbkdf2: Pbkdf2Service,
     private mailService: MailService,
   ) {}
@@ -66,9 +68,10 @@ export class AuthService {
       }
     }
 
-    // Uniqueness check for accountNumber
+    // Uniqueness check for accountNumber (using hash)
+    const accHash = this.accountCrypto.hashAccountNumber(dto.accountNumber);
     const accExists = await this.accountRepo.findOne({
-      where: { accountNumber: dto.accountNumber },
+      where: { accountNumberHash: accHash },
     });
     if (accExists) throw new ConflictException('Số tài khoản đã tồn tại');
 
@@ -105,11 +108,16 @@ export class AuthService {
     });
     await this.customerRepo.save(customer);
 
+    // Encrypt account number and store with hash
+    const encAccountNumber = await this.accountCrypto.encryptAccountNumber(
+      dto.accountNumber,
+    );
     const encBalance = await this.aesService.encrypt('0');
     const account = this.accountRepo.create({
       id: accountId,
       customerId: customerId,
-      accountNumber: dto.accountNumber,
+      accountNumber: this.aesService.serialize(encAccountNumber),
+      accountNumberHash: accHash,
       accountType: 'saving',
       balance: this.aesService.serialize(encBalance),
     });

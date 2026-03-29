@@ -23,8 +23,12 @@ export class AdminController {
 
   // Danh sách user
   @Get('users')
-  getUsers(@Query('page') page = 1, @Query('limit') limit = 20) {
-    return this.service.getUsers(+page, +limit);
+  getUsers(
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+    @Query('q') q?: string,
+  ) {
+    return this.service.getUsers(+page, +limit, q);
   }
 
   // Kích hoạt / vô hiệu hoá tài khoản

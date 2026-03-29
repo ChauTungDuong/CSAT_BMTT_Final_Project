@@ -8,8 +8,11 @@ export class Account {
   @Column({ name: 'CUSTOMER_ID', length: 36 })
   customerId: string;
 
-  @Column({ name: 'ACCOUNT_NUMBER', length: 20, unique: true })
-  accountNumber: string;
+  @Column({ name: 'ACCOUNT_NUMBER', type: 'blob' })
+  accountNumber: Buffer;
+
+  @Column({ name: 'ACCOUNT_NUMBER_HASH', length: 64, unique: true })
+  accountNumberHash: string;
 
   @Column({ name: 'ACCOUNT_TYPE', length: 20, default: 'saving' })
   accountType: string;

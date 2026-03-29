@@ -63,6 +63,14 @@ function hmacSha256(key, data) {
   return crypto.createHmac('sha256', key).update(data).digest();
 }
 
+function hashAccountNumber(accountNumber) {
+  const normalized = accountNumber.trim();
+  return crypto
+    .createHmac('sha256', masterKey)
+    .update(normalized)
+    .digest('hex');
+}
+
 function pbkdf2Manual(secret, salt, iterations, dkLen) {
   const hLen = 32;
   const l = Math.ceil(dkLen / hLen);
@@ -433,16 +441,20 @@ async function seed() {
 
     if ((existingAccount.rows || []).length > 0) {
       const accId = existingAccount.rows[0][0];
+      const accNumHash = hashAccountNumber(c.accountNumber);
+      const encAccNum = encrypt(c.accountNumber);
       await conn.execute(
         `UPDATE ACCOUNTS
          SET ACCOUNT_NUMBER = :accNum,
+             ACCOUNT_NUMBER_HASH = :accHash,
              ACCOUNT_TYPE = 'saving',
              BALANCE = :balance,
              IS_ACTIVE = 1
          WHERE ID = :id`,
         {
           id: accId,
-          accNum: c.accountNumber,
+          accNum: { val: encAccNum, type: oracledb.BUFFER },
+          accHash: accNumHash,
           balance: { val: encrypt(c.balance), type: oracledb.BUFFER },
         },
       );
@@ -450,13 +462,16 @@ async function seed() {
         `♻️  Updated customer: ${c.fullName} (account: ${c.accountNumber})`,
       );
     } else {
+      const accNumHash = hashAccountNumber(c.accountNumber);
+      const encAccNum = encrypt(c.accountNumber);
       await conn.execute(
-        `INSERT INTO ACCOUNTS (ID, CUSTOMER_ID, ACCOUNT_NUMBER, ACCOUNT_TYPE, BALANCE)
-         VALUES (:id, :custId, :accNum, 'saving', :balance)`,
+        `INSERT INTO ACCOUNTS (ID, CUSTOMER_ID, ACCOUNT_NUMBER, ACCOUNT_NUMBER_HASH, ACCOUNT_TYPE, BALANCE)
+         VALUES (:id, :custId, :accNum, :accHash, 'saving', :balance)`,
         {
           id: `ACC-${crypto.randomBytes(8).toString('hex').toUpperCase()}`,
           custId,
-          accNum: c.accountNumber,
+          accNum: { val: encAccNum, type: oracledb.BUFFER },
+          accHash: accNumHash,
           balance: { val: encrypt(c.balance), type: oracledb.BUFFER },
         },
       );

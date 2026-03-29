@@ -8,6 +8,7 @@ import { Repository } from 'typeorm';
 import { Account } from './entities/account.entity';
 import { Customer } from '../customers/entities/customer.entity';
 import { AesService } from '../../crypto/services/aes.service';
+import { AccountCryptoService } from '../../crypto/services/account-crypto.service';
 import { MaskingEngine } from '../../masking/masking.engine';
 import { AuditService } from '../../audit/audit.service';
 import { Role } from '../../common/types/role.enum';
@@ -18,6 +19,7 @@ export class AccountsService {
     @InjectRepository(Account) private accountRepo: Repository<Account>,
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
     private aes: AesService,
+    private accountCrypto: AccountCryptoService,
     private masking: MaskingEngine,
     private audit: AuditService,
   ) {}
@@ -41,6 +43,11 @@ export class AccountsService {
 
     return Promise.all(
       accounts.map(async (acc) => {
+        const accountNumberPlain =
+          await this.accountCrypto.decryptAccountNumber(
+            this.aes.deserialize(acc.accountNumber as Buffer),
+          );
+
         const balancePlain = await this.aes.decrypt(
           this.aes.deserialize(acc.balance as Buffer),
         );
@@ -54,7 +61,7 @@ export class AccountsService {
         return {
           id: acc.id,
           // Số tài khoản là field độc lập, luôn hiển thị cho owner
-          accountNumber: acc.accountNumber,
+          accountNumber: accountNumberPlain ?? 'N/A',
           accountType: acc.accountType,
           balance: formattedBalance,
           balanceMasked,
@@ -70,7 +77,9 @@ export class AccountsService {
   }
 
   async findAccountByNumber(accountNumber: string): Promise<Account | null> {
-    return this.accountRepo.findOne({ where: { accountNumber } });
+    const accountNumberHash =
+      this.accountCrypto.hashAccountNumber(accountNumber);
+    return this.accountRepo.findOne({ where: { accountNumberHash } });
   }
 
   // Kiểm tra account thuộc về customer

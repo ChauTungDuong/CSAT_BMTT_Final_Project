@@ -30,9 +30,14 @@ export default function LoginPage() {
       // Redirect based on role stored inside the token will be handled by App.tsx guard
       navigate("/", { replace: true });
     } catch (err: any) {
+      const backendMessage = err?.response?.data?.message;
+      const clientMessage = typeof err?.message === "string" ? err.message : "";
+
       const message =
-        err?.response?.data?.message ||
-        "Tên đăng nhập hoặc mật khẩu không đúng.";
+        backendMessage ||
+        (clientMessage
+          ? `Lỗi phía trình duyệt trước khi gọi API: ${clientMessage}`
+          : "Tên đăng nhập hoặc mật khẩu không đúng.");
       setError(message);
     } finally {
       setLoading(false);

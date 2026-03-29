@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AesService } from './services/aes.service';
+import { AccountCryptoService } from './services/account-crypto.service';
 import { CryptoLogService } from './services/crypto-log.service';
 import { CryptoGateway } from './crypto.gateway';
 import { CryptoTraceContextService } from './services/crypto-trace-context.service';
@@ -13,6 +14,7 @@ import { TransportEnvelopeInterceptor } from './interceptors/transport-envelope.
 @Module({
   providers: [
     AesService,
+    AccountCryptoService,
     CryptoLogService,
     CryptoGateway,
     CryptoTraceContextService,
@@ -26,6 +28,7 @@ import { TransportEnvelopeInterceptor } from './interceptors/transport-envelope.
   controllers: [CryptoController, TransportController],
   exports: [
     AesService,
+    AccountCryptoService,
     CryptoLogService,
     CryptoTraceContextService,
     Pbkdf2Service,

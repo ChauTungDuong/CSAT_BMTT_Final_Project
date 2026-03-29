@@ -13,6 +13,7 @@ import { Account } from '../accounts/entities/account.entity';
 import { AuditService } from '../../audit/audit.service';
 import { MaskingEngine } from '../../masking/masking.engine';
 import { AesService } from '../../crypto/services/aes.service';
+import { AccountCryptoService } from '../../crypto/services/account-crypto.service';
 import { Role } from '../../common/types/role.enum';
 import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
 import { MailService } from '../customers/mail.service';
@@ -37,15 +38,18 @@ export class AdminService {
     private audit: AuditService,
     private masking: MaskingEngine,
     private aes: AesService,
+    private accountCrypto: AccountCryptoService,
     private pbkdf2: Pbkdf2Service,
     private mailService: MailService,
   ) {}
 
-  async getUsers(page: number, limit: number) {
-    const [users, total] = await this.userRepo.findAndCount({
+  async getUsers(page: number, limit: number, q?: string) {
+    const safePage = Number.isFinite(page) && page > 0 ? page : 1;
+    const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 20;
+    const keyword = (q || '').trim().toLowerCase();
+
+    const users = await this.userRepo.find({
       order: { createdAt: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
     });
 
     // Join với customers để lấy thêm thông tin
@@ -84,6 +88,18 @@ export class AdminService {
           decryptAndMask(customer?.address, 'address'),
         ]);
 
+        // Decrypt account number for search and masking
+        let plainAccountNumber: string | null = null;
+        if (account?.accountNumber) {
+          try {
+            plainAccountNumber = await this.accountCrypto.decryptAccountNumber(
+              this.aes.deserialize(account.accountNumber),
+            );
+          } catch {
+            plainAccountNumber = null;
+          }
+        }
+
         return {
           id: u.id,
           username: u.username,
@@ -99,19 +115,39 @@ export class AdminService {
           cccd,
           dateOfBirth,
           address,
-          accountNumber: account?.accountNumber
+          accountNumber: plainAccountNumber
             ? this.masking.mask(
-                account.accountNumber,
+                plainAccountNumber,
                 'account_number',
                 Role.ADMIN,
               )
             : null,
+          searchAccountNumber: plainAccountNumber || null,
           createdAt: u.createdAt,
         };
       }),
     );
 
-    return { items, total, page, limit };
+    const filteredItems = keyword
+      ? items.filter((item) => {
+          const usernameMatch = item.username?.toLowerCase().includes(keyword);
+          const accountMatch = item.searchAccountNumber
+            ?.toLowerCase()
+            .includes(keyword);
+          return !!(usernameMatch || accountMatch);
+        })
+      : items;
+
+    const total = filteredItems.length;
+    const start = (safePage - 1) * safeLimit;
+    const pagedItems = filteredItems.slice(start, start + safeLimit);
+
+    return {
+      items: pagedItems.map(({ searchAccountNumber, ...item }) => item),
+      total,
+      page: safePage,
+      limit: safeLimit,
+    };
   }
 
   async setUserStatus(

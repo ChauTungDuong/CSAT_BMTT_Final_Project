@@ -12,6 +12,7 @@ import { Customer } from '../customers/entities/customer.entity';
 import { User } from '../auth/entities/user.entity';
 import { Transaction } from './entities/transaction.entity';
 import { AesService } from '../../crypto/services/aes.service';
+import { AccountCryptoService } from '../../crypto/services/account-crypto.service';
 import { AuditService } from '../../audit/audit.service';
 import { TransferDto } from './dto/transfer.dto';
 import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
@@ -24,6 +25,7 @@ export class TransactionsService {
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Transaction) private txRepo: Repository<Transaction>,
     private aes: AesService,
+    private accountCrypto: AccountCryptoService,
     private audit: AuditService,
     private dataSource: DataSource,
     private pbkdf2: Pbkdf2Service,
@@ -31,6 +33,7 @@ export class TransactionsService {
 
   async transfer(dto: TransferDto, userId: string, ip: string) {
     const toAccountNumber = dto.toAccountNumber.trim();
+    const toAccountHash = this.accountCrypto.hashAccountNumber(toAccountNumber);
 
     if (dto.amount <= 0)
       throw new BadRequestException('Số tiền phải lớn hơn 0');
@@ -106,13 +109,14 @@ export class TransactionsService {
       if (!fromAccount)
         throw new NotFoundException('Tài khoản nguồn không tồn tại');
 
+      // Lookup destination account by hash (encrypted lookups)
       await queryRunner.query(
-        'SELECT ID FROM ACCOUNTS WHERE ACCOUNT_NUMBER = :1 FOR UPDATE',
-        [toAccountNumber],
+        'SELECT ID FROM ACCOUNTS WHERE ACCOUNT_NUMBER_HASH = :1 FOR UPDATE',
+        [toAccountHash],
       );
 
       const toAccount = await queryRunner.manager.findOne(Account, {
-        where: { accountNumber: toAccountNumber },
+        where: { accountNumberHash: toAccountHash },
       });
       if (!toAccount)
         throw new NotFoundException('Tài khoản đích không tồn tại');

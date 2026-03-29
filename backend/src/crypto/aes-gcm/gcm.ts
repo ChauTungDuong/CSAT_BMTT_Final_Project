@@ -27,7 +27,7 @@ export function encryptGCM(
   key: Uint8Array,
   iv: Uint8Array,
   plaintext: Uint8Array,
-  aad: Uint8Array = new Uint8Array(0)
+  aad: Uint8Array = new Uint8Array(0),
 ): { ciphertext: Uint8Array; authTag: Uint8Array } {
   if (key.length !== 32) throw new Error('Key must be 32 bytes for AES-256');
   if (iv.length !== 12) throw new Error('IV strictly expected to be 12 bytes');
@@ -100,11 +100,12 @@ export function decryptGCM(
   iv: Uint8Array,
   ciphertext: Uint8Array,
   authTag: Uint8Array,
-  aad: Uint8Array = new Uint8Array(0)
+  aad: Uint8Array = new Uint8Array(0),
 ): Uint8Array {
   if (key.length !== 32) throw new Error('Key must be 32 bytes for AES-256');
   if (iv.length !== 12) throw new Error('IV strictly expected to be 12 bytes');
-  if (authTag.length !== 16) throw new Error('AuthTag strictly expected to be 16 bytes');
+  if (authTag.length !== 16)
+    throw new Error('AuthTag strictly expected to be 16 bytes');
 
   const w = expandKey256(key);
 

@@ -39,3 +39,5 @@ Wallet_CSATBM/
 sqlnet.ora
 tnsnames.ora
 ojdbc.properties
+
+*.md

@@ -15,6 +15,7 @@ import {
   RsaPublicKeyMaterial,
   rsaOaepDecrypt,
 } from '../pure/rsa-manual';
+import { decryptGCM, encryptGCM } from '../aes-gcm';
 
 export interface EncryptedEnvelope {
   kid?: string;
@@ -99,23 +100,18 @@ export class RsaTransportService {
       throw new BadRequestException('AAD không khớp');
     }
 
-    const decipher = crypto.createDecipheriv('aes-256-gcm', sessionKey, iv);
-    if (aad) {
-      decipher.setAAD(Buffer.from(aad, 'utf8'));
-    }
-    decipher.setAuthTag(tag);
-
-    let decrypted: Buffer;
     try {
-      decrypted = Buffer.concat([
-        decipher.update(ciphertext),
-        decipher.final(),
-      ]);
+      const decrypted = decryptGCM(
+        sessionKey,
+        iv,
+        ciphertext,
+        tag,
+        aad ? Buffer.from(aad, 'utf8') : undefined,
+      );
+      return Buffer.from(decrypted).toString('utf8');
     } catch {
       throw new BadRequestException('Payload mã hóa không hợp lệ');
     }
-
-    return decrypted.toString('utf8');
   }
 
   encryptWithSessionKey(
@@ -129,20 +125,18 @@ export class RsaTransportService {
 
     const iv = crypto.randomBytes(12);
 
-    const cipher = crypto.createCipheriv('aes-256-gcm', sessionKey, iv);
-    if (aad) {
-      cipher.setAAD(Buffer.from(aad, 'utf8'));
-    }
-    const encrypted = Buffer.concat([
-      cipher.update(payload, 'utf8'),
-      cipher.final(),
-    ]);
-    const tag = cipher.getAuthTag();
+    const plainBytes = Buffer.from(payload, 'utf8');
+    const { ciphertext, authTag } = encryptGCM(
+      sessionKey,
+      iv,
+      plainBytes,
+      aad ? Buffer.from(aad, 'utf8') : undefined,
+    );
 
     return {
       iv: iv.toString('base64'),
-      tag: tag.toString('base64'),
-      payload: encrypted.toString('base64'),
+      tag: Buffer.from(authTag).toString('base64'),
+      payload: Buffer.from(ciphertext).toString('base64'),
       ...(aad ? { aad } : {}),
     };
   }

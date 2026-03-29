@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import * as crypto from 'crypto';
+import { sha256 } from '../pure/rsa-manual';
 
 type HashPurpose = 'password' | 'pin';
 
@@ -85,6 +86,28 @@ export class Pbkdf2Service {
   }
 
   private hmacSha256(key: Buffer, data: Buffer): Buffer {
-    return crypto.createHmac(this.algorithm, key).update(data).digest();
+    const blockSize = 64; // SHA-256 block size in bytes
+    let workingKey = Buffer.from(key);
+
+    if (workingKey.length > blockSize) {
+      workingKey = Buffer.from(sha256(workingKey));
+    }
+
+    if (workingKey.length < blockSize) {
+      workingKey = Buffer.concat([
+        workingKey,
+        Buffer.alloc(blockSize - workingKey.length, 0),
+      ]);
+    }
+
+    const oPad = Buffer.alloc(blockSize);
+    const iPad = Buffer.alloc(blockSize);
+    for (let i = 0; i < blockSize; i++) {
+      oPad[i] = workingKey[i] ^ 0x5c;
+      iPad[i] = workingKey[i] ^ 0x36;
+    }
+
+    const inner = Buffer.from(sha256(Buffer.concat([iPad, data])));
+    return Buffer.from(sha256(Buffer.concat([oPad, inner])));
   }
 }

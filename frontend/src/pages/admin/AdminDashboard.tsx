@@ -440,9 +440,7 @@ export function AdminDashboard() {
                     </td>
                     <td className="px-4 py-3">
                       {u.role === "admin" ? (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600">
-                          Bảo vệ tài khoản admin
-                        </span>
+                        <span className="text-gray-400 italic">--</span>
                       ) : (
                         <div className="flex flex-wrap gap-2">
                           <button

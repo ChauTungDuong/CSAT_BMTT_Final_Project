@@ -20,13 +20,23 @@ const api = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
+const TRANSPORT_STRICT =
+  (import.meta as any).env.VITE_TRANSPORT_STRICT !== "false";
+
 api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
   const method = String(config.method || "get").toUpperCase();
+  const requestUrl = String(config.url || "");
+  const strictRequired = isStrictTransportRequired(requestUrl);
   const hasBody = shouldHaveBody(method, config.data);
   const shouldEncryptBody = hasBody && isJsonLikePayload(config.data);
 
   // Keep non-JSON payloads untouched (e.g. FormData/file upload)
   if (hasBody && !shouldEncryptBody) {
+    if (strictRequired) {
+      throw new Error(
+        "Strict transport crypto đang bật: không cho phép gửi payload non-JSON ở dạng plaintext.",
+      );
+    }
     return config;
   }
 
@@ -39,6 +49,11 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
     );
 
     if (!prepared.enabled) {
+      if (strictRequired) {
+        throw new Error(
+          "Strict transport crypto đang bật: không thể thiết lập envelope mã hóa cho request.",
+        );
+      }
       return config;
     }
 
@@ -54,7 +69,13 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
       config.data = prepared.body;
     }
   } catch {
-    // Fail open: if transport setup fails, fallback to plaintext request.
+    if (strictRequired) {
+      throw new Error(
+        "Strict transport crypto đang bật: request bị chặn vì không thể mã hóa payload.",
+      );
+    }
+
+    // Non-strict mode: if transport setup fails, fallback to plaintext request.
   }
 
   return config;
@@ -177,6 +198,19 @@ function readResponseHeader(
   }
 
   return String(headerValue);
+}
+
+function isStrictTransportRequired(url: string): boolean {
+  if (!TRANSPORT_STRICT) {
+    return false;
+  }
+
+  return !isBootstrapTransportPath(url);
+}
+
+function isBootstrapTransportPath(url: string): boolean {
+  const lower = url.toLowerCase();
+  return lower.includes("/transport/public-key");
 }
 
 export default api;

@@ -240,11 +240,6 @@ export function UserProfilePage() {
               <h3 className="font-semibold text-gray-800 mb-2">
                 PIN bảo mật admin
               </h3>
-              <p className="text-sm text-gray-500 mb-4">
-                {profile?.hasAdminPin
-                  ? "Đổi PIN yêu cầu mật khẩu hiện tại và PIN hiện tại. Admin không cần OTP."
-                  : "Thiết lập PIN lần đầu để thực hiện thao tác nhạy cảm như khóa/mở khóa tài khoản, reset mật khẩu và xem thông tin chi tiết người dùng."}
-              </p>
 
               <form onSubmit={handleSetAdminPin} className="space-y-3">
                 {profile?.hasAdminPin ? (

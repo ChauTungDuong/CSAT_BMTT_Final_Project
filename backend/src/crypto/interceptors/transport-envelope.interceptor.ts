@@ -27,12 +27,23 @@ export class TransportEnvelopeInterceptor implements NestInterceptor {
     const req = context.switchToHttp().getRequest<any>();
     const res = context.switchToHttp().getResponse<Response>();
 
-    if (!this.rsaTransport.isEnabled() || !this.isEnvelopeMode(req)) {
+    const path = this.normalizePath(req.originalUrl || req.url || '');
+    const strictEnabled = this.isStrictTransportMode();
+
+    if (path === '/api/transport/public-key') {
       return next.handle();
     }
 
-    const path = this.normalizePath(req.originalUrl || req.url || '');
-    if (path === '/api/transport/public-key') {
+    if (!this.rsaTransport.isEnabled()) {
+      return next.handle();
+    }
+
+    if (!this.isEnvelopeMode(req)) {
+      if (strictEnabled && !this.isStrictBypassPath(path)) {
+        throw new BadRequestException(
+          'Yêu cầu bắt buộc dùng envelope mã hóa ở chế độ strict transport',
+        );
+      }
       return next.handle();
     }
 
@@ -188,5 +199,18 @@ export class TransportEnvelopeInterceptor implements NestInterceptor {
     nonce: string,
   ): string {
     return `${method}|${path}|${timestamp}|${nonce}`;
+  }
+
+  private isStrictTransportMode(): boolean {
+    const strict = this.config.get<string>('APP_LAYER_CRYPTO_STRICT');
+    if (strict === 'false') {
+      return false;
+    }
+    return this.rsaTransport.isEnabled();
+  }
+
+  private isStrictBypassPath(path: string): boolean {
+    // Keep monitor APIs accessible for operational visibility in dev mode.
+    return path.startsWith('/api/crypto');
   }
 }

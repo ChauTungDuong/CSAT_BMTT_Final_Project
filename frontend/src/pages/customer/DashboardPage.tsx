@@ -183,38 +183,54 @@ export function DashboardPage() {
               </button>
             )}
           </div>
-          <dl className="grid grid-cols-2 gap-x-6">
-            <MaskedField
-              label="Họ và tên"
-              value={profile?.fullName}
-              isMasked={false}
-            />
-            <MaskedField
-              label="Email"
-              value={profile?.email}
-              isMasked={!profile?.isPinVerified}
-            />
-            <MaskedField
-              label="Số điện thoại"
-              value={profile?.phone}
-              isMasked={!profile?.isPinVerified}
-            />
-            <MaskedField
-              label="CCCD"
-              value={profile?.cccd}
-              isMasked={!profile?.isPinVerified}
-            />
-            <MaskedField
-              label="Ngày sinh"
-              value={profile?.dateOfBirth}
-              isMasked={!profile?.isPinVerified}
-            />
-            <MaskedField
-              label="Địa chỉ"
-              value={profile?.address}
-              isMasked={!profile?.isPinVerified}
-            />
-          </dl>
+
+          <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4 mb-4">
+            <h3 className="text-sm font-semibold text-slate-700 mb-2">
+              Thông tin cơ bản
+            </h3>
+            <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+              <MaskedField
+                label="Họ và tên"
+                value={profile?.fullName}
+                isMasked={false}
+              />
+              <MaskedField
+                label="Ngày sinh"
+                value={profile?.dateOfBirth}
+                isMasked={false}
+              />
+              <div className="md:col-span-2">
+                <MaskedField
+                  label="Địa chỉ"
+                  value={profile?.address}
+                  isMasked={false}
+                />
+              </div>
+            </dl>
+          </div>
+
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+            <h3 className="text-sm font-semibold text-amber-700 mb-2">
+              Thông tin nhạy cảm
+            </h3>
+            <dl className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+              <MaskedField
+                label="Email"
+                value={profile?.email}
+                isMasked={!profile?.isPinVerified}
+              />
+              <MaskedField
+                label="Số điện thoại"
+                value={profile?.phone}
+                isMasked={!profile?.isPinVerified}
+              />
+              <MaskedField
+                label="CCCD"
+                value={profile?.cccd}
+                isMasked={!profile?.isPinVerified}
+              />
+            </dl>
+          </div>
         </div>
       </div>
 

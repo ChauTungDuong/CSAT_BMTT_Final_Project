@@ -44,9 +44,9 @@ export class MaskingEngine {
   private maskForCustomer(value: string, field: FieldType): string {
     switch (field) {
       case 'phone':
-        return value.replace(/^(\d{3})\d{4}(\d{3})$/, '$1****$2');
+        return this.maskCenterChars(value, 2);
       case 'cccd':
-        return value.replace(/^(\d{3})\d{5}(\d{4})$/, '$1*****$2');
+        return this.maskCenterChars(value, 2);
       case 'account_number':
         // Số tài khoản luôn là field riêng, không che cho owner
         return value;
@@ -57,11 +57,11 @@ export class MaskingEngine {
       case 'balance':
         return '••••••';
       case 'email':
-        return value.replace(/^(\w{2})\w+(@.+)$/, '$1***$2');
+        return this.maskEmailKeepLastOneBeforeAt(value);
       case 'date_of_birth':
-        return this.maskDateOfBirth(value);
+        return value;
       case 'address':
-        return value.split(',').slice(-2).join(',').trim();
+        return value;
       default:
         return value;
     }
@@ -71,9 +71,9 @@ export class MaskingEngine {
   private maskForAdmin(value: string, field: FieldType): string {
     switch (field) {
       case 'phone':
-        return value.replace(/^(\d{2})\d{6}(\d{2})$/, '$1******$2');
+        return this.maskKeepHeadTail(value, 3, 3);
       case 'email':
-        return value.replace(/^(\w{1})\w+(@.+)$/, '$1***$2');
+        return this.maskEmailKeepFirstN(value, 4);
       case 'cccd':
         return this.fullMask('cccd');
       case 'card_number':
@@ -83,7 +83,7 @@ export class MaskingEngine {
       case 'balance':
         return this.fullMask('balance');
       case 'account_number':
-        return value.replace(/^\d+(\d{4})$/, '******$1');
+        return this.maskKeepHeadTail(value, 3, 4);
       case 'date_of_birth':
         return this.maskDateOfBirth(value);
       case 'address':
@@ -132,5 +132,58 @@ export class MaskingEngine {
     }
 
     return this.fullMask('date_of_birth');
+  }
+
+  private maskKeepHeadTail(
+    value: string,
+    headVisible: number,
+    tailVisible: number,
+  ): string {
+    if (!value) return value;
+    if (value.length <= headVisible + tailVisible) {
+      return '*'.repeat(value.length);
+    }
+
+    const maskedLen = value.length - headVisible - tailVisible;
+    return `${value.slice(0, headVisible)}${'*'.repeat(maskedLen)}${value.slice(value.length - tailVisible)}`;
+  }
+
+  private maskCenterChars(value: string, maskCount: number): string {
+    if (!value) return value;
+    if (value.length <= maskCount) {
+      return '*'.repeat(value.length);
+    }
+
+    const start = Math.floor((value.length - maskCount) / 2);
+    const end = start + maskCount;
+    return `${value.slice(0, start)}${'*'.repeat(maskCount)}${value.slice(end)}`;
+  }
+
+  private maskEmailKeepFirstN(value: string, keep: number): string {
+    const atIndex = value.indexOf('@');
+    if (atIndex <= 0) {
+      return this.fullMask('email');
+    }
+
+    const local = value.slice(0, atIndex);
+    const domain = value.slice(atIndex);
+    const visible = Math.min(keep, local.length);
+    const masked = '*'.repeat(Math.max(0, local.length - visible));
+    return `${local.slice(0, visible)}${masked}${domain}`;
+  }
+
+  private maskEmailKeepLastOneBeforeAt(value: string): string {
+    const atIndex = value.indexOf('@');
+    if (atIndex <= 0) {
+      return this.fullMask('email');
+    }
+
+    const local = value.slice(0, atIndex);
+    const domain = value.slice(atIndex);
+    if (local.length <= 1) {
+      return `*${domain}`;
+    }
+
+    return `${local.slice(0, -1)}*${domain}`;
   }
 }

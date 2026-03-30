@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import * as cookieParser from 'cookie-parser';
 import { randomUUID } from 'crypto';
@@ -8,7 +9,8 @@ import { CryptoTraceContextService } from './crypto/services/crypto-trace-contex
 
 async function bootstrap() {
   // TLS is terminated at the nginx reverse proxy — backend uses plain HTTP internally
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.set('trust proxy', 1);
 
   // Security headers
   app.use(helmet());

@@ -34,7 +34,7 @@ services:
     container_name: bank-backend
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3001:3000"
+      - "${BACKEND_BIND_HOST:-127.0.0.1}:${BACKEND_HOST_PORT:-13001}:3000"
     env_file:
       - ./backend/.env
     environment:
@@ -51,7 +51,7 @@ services:
     container_name: bank-frontend
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3002:80"
+      - "${FRONTEND_BIND_HOST:-127.0.0.1}:${FRONTEND_HOST_PORT:-13002}:80"
     depends_on:
       - backend
 
@@ -62,8 +62,8 @@ services:
     container_name: bank-nginx-proxy
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "${NGINX_BIND_HOST:-0.0.0.0}:${NGINX_HTTP_HOST_PORT:-18080}:80"
+      - "${NGINX_BIND_HOST:-0.0.0.0}:${NGINX_HTTPS_HOST_PORT:-18443}:443"
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - ./nginx-proxy/conf.d:/etc/nginx/conf.d:ro
@@ -80,7 +80,7 @@ services:
       - monitor
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3003:80"
+      - "${MONITOR_BIND_HOST:-127.0.0.1}:${MONITOR_HOST_PORT:-13003}:80"
     environment:
       - VITE_BACKEND_URL=http://bank-backend:3000
       - VITE_MONITOR_TOKEN=${CRYPTO_MONITOR_TOKEN:-}

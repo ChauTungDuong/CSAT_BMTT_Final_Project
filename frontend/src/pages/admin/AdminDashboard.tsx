@@ -330,7 +330,7 @@ export function AdminDashboard() {
               <p className="text-3xl font-bold text-gray-800">
                 {s.value ?? "..."}
               </p>
-              <p className="text-sm text-gray-500 mt-1">{s.label}</p>
+              <p className="text-base text-gray-500 mt-1">{s.label}</p>
             </div>
           ))}
         </div>
@@ -338,13 +338,13 @@ export function AdminDashboard() {
         <div className="flex gap-3 mb-6">
           <Link
             to="/admin/audit"
-            className="bg-white border border-gray-200 px-4 py-2 rounded-lg text-sm hover:bg-gray-50 shadow-sm"
+            className="bg-white border border-gray-200 px-4 py-2 rounded-lg text-base hover:bg-gray-50 shadow-sm"
           >
             📋 Xem Audit Log
           </Link>
           <Link
             to="/admin/profile"
-            className="bg-white border border-gray-200 px-4 py-2 rounded-lg text-sm hover:bg-gray-50 shadow-sm"
+            className="bg-white border border-gray-200 px-4 py-2 rounded-lg text-base hover:bg-gray-50 shadow-sm"
           >
             👤 Hồ sơ của tôi
           </Link>
@@ -352,8 +352,10 @@ export function AdminDashboard() {
 
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b bg-blue-50">
-            <h2 className="font-semibold text-gray-800">Quản lý tài khoản</h2>
-            <p className="text-xs text-gray-500 mt-1">
+            <h2 className="font-semibold text-xl text-gray-800">
+              Quản lý tài khoản
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">
               Kích hoạt, khóa hoặc reset mật khẩu tài khoản. Thông tin nhạy cảm
               hiển thị theo chính sách bảo mật của hệ thống.
             </p>
@@ -363,12 +365,12 @@ export function AdminDashboard() {
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
                 placeholder="Tìm theo tên đăng nhập hoặc số tài khoản"
-                className="w-full md:w-[420px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full md:w-[420px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-base outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
           <div>
-            <table className="w-full table-fixed text-sm lg:text-base">
+            <table className="w-full table-fixed text-[10.5px]">
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="w-[10%] text-left px-2 py-3 font-medium text-gray-600">
@@ -409,35 +411,35 @@ export function AdminDashboard() {
               <tbody className="divide-y divide-gray-100">
                 {users?.items.map((u) => (
                   <tr key={u.id} className="hover:bg-gray-50">
-                    <td className="px-2 py-3 font-mono text-sm lg:text-base break-all">
+                    <td className="px-2 py-3 font-mono break-all">
                       {u.username}
                     </td>
-                    <td className="px-2 py-3 text-sm lg:text-base">
+                    <td className="px-2 py-3">
                       {u.fullName ?? (
                         <span className="text-gray-400 italic">--</span>
                       )}
                     </td>
-                    <td className="px-2 py-3 font-mono text-sm lg:text-base text-gray-500 break-all">
+                    <td className="px-2 py-3 font-mono text-gray-500 break-all">
                       {u.email ?? "--"}
                     </td>
-                    <td className="px-2 py-3 font-mono text-sm lg:text-base text-gray-500 break-all">
+                    <td className="px-2 py-3 font-mono text-gray-500 break-all">
                       {u.phone ?? "--"}
                     </td>
-                    <td className="px-2 py-3 font-mono text-sm lg:text-base text-gray-500 break-all">
+                    <td className="px-2 py-3 font-mono text-gray-500 break-all">
                       {u.accountNumber ?? "--"}
                     </td>
-                    <td className="px-2 py-3 font-mono text-sm lg:text-base text-gray-500">
+                    <td className="px-2 py-3 font-mono text-gray-500">
                       {u.dateOfBirth ?? "--"}
                     </td>
-                    <td className="px-2 py-3 font-mono text-sm lg:text-base text-gray-500 break-all">
+                    <td className="px-2 py-3 font-mono text-gray-500 break-all">
                       {u.cccd ?? "--"}
                     </td>
-                    <td className="px-2 py-3 text-sm lg:text-base text-gray-500 break-words">
+                    <td className="px-2 py-3 text-gray-500 break-words">
                       {u.address ?? "--"}
                     </td>
                     <td className="px-2 py-3">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-medium ${
                           u.role === "admin"
                             ? "bg-red-100 text-red-700"
                             : "bg-green-100 text-green-700"
@@ -448,7 +450,7 @@ export function AdminDashboard() {
                     </td>
                     <td className="px-2 py-3">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-medium ${
                           u.isActive
                             ? "bg-green-100 text-green-700"
                             : "bg-gray-100 text-gray-500"
@@ -471,7 +473,7 @@ export function AdminDashboard() {
                               })
                             }
                             disabled={toggleStatus.isPending}
-                            className={`w-full px-2 py-1.5 rounded text-[11px] font-medium transition-colors whitespace-nowrap ${
+                            className={`w-full px-2 py-1.5 rounded text-[10.5px] font-medium transition-colors whitespace-nowrap ${
                               u.isActive
                                 ? "bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
                                 : "bg-green-100 text-green-700 hover:bg-green-200"
@@ -487,7 +489,7 @@ export function AdminDashboard() {
                               })
                             }
                             disabled={resetPassword.isPending}
-                            className="w-full px-2 py-1.5 rounded text-[11px] font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors whitespace-nowrap"
+                            className="w-full px-2 py-1.5 rounded text-[10.5px] font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors whitespace-nowrap"
                           >
                             Reset mật khẩu
                           </button>
@@ -499,7 +501,7 @@ export function AdminDashboard() {
                               })
                             }
                             disabled={openSensitiveView.isPending}
-                            className="w-full px-2 py-1.5 rounded text-[11px] font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors whitespace-nowrap"
+                            className="w-full px-2 py-1.5 rounded text-[10.5px] font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors whitespace-nowrap"
                           >
                             Xem chi tiết
                           </button>

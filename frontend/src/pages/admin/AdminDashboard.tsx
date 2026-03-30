@@ -368,7 +368,7 @@ export function AdminDashboard() {
             </div>
           </div>
           <div>
-            <table className="w-full table-fixed text-xs lg:text-sm">
+            <table className="w-full table-fixed text-sm lg:text-base">
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="w-[10%] text-left px-2 py-3 font-medium text-gray-600">
@@ -409,30 +409,30 @@ export function AdminDashboard() {
               <tbody className="divide-y divide-gray-100">
                 {users?.items.map((u) => (
                   <tr key={u.id} className="hover:bg-gray-50">
-                    <td className="px-2 py-3 font-mono text-[11px] break-all">
+                    <td className="px-2 py-3 font-mono text-sm lg:text-base break-all">
                       {u.username}
                     </td>
-                    <td className="px-2 py-3 text-[11px]">
+                    <td className="px-2 py-3 text-sm lg:text-base">
                       {u.fullName ?? (
                         <span className="text-gray-400 italic">--</span>
                       )}
                     </td>
-                    <td className="px-2 py-3 font-mono text-[11px] text-gray-500 break-all">
+                    <td className="px-2 py-3 font-mono text-sm lg:text-base text-gray-500 break-all">
                       {u.email ?? "--"}
                     </td>
-                    <td className="px-2 py-3 font-mono text-[11px] text-gray-500 break-all">
+                    <td className="px-2 py-3 font-mono text-sm lg:text-base text-gray-500 break-all">
                       {u.phone ?? "--"}
                     </td>
-                    <td className="px-2 py-3 font-mono text-[11px] text-gray-500 break-all">
+                    <td className="px-2 py-3 font-mono text-sm lg:text-base text-gray-500 break-all">
                       {u.accountNumber ?? "--"}
                     </td>
-                    <td className="px-2 py-3 font-mono text-[11px] text-gray-500">
+                    <td className="px-2 py-3 font-mono text-sm lg:text-base text-gray-500">
                       {u.dateOfBirth ?? "--"}
                     </td>
-                    <td className="px-2 py-3 font-mono text-[11px] text-gray-500 break-all">
+                    <td className="px-2 py-3 font-mono text-sm lg:text-base text-gray-500 break-all">
                       {u.cccd ?? "--"}
                     </td>
-                    <td className="px-2 py-3 text-[11px] text-gray-500 break-words">
+                    <td className="px-2 py-3 text-sm lg:text-base text-gray-500 break-words">
                       {u.address ?? "--"}
                     </td>
                     <td className="px-2 py-3">

@@ -370,7 +370,7 @@ export function AdminDashboard() {
             </div>
           </div>
           <div>
-            <table className="w-full table-fixed text-[10.5px]">
+            <table className="w-full table-fixed text-[12.5px]">
               <thead className="bg-gray-50 border-b">
                 <tr>
                   <th className="w-[10%] text-left px-2 py-3 font-medium text-gray-600">
@@ -439,7 +439,7 @@ export function AdminDashboard() {
                     </td>
                     <td className="px-2 py-3">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-medium ${
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-[12.5px] font-medium ${
                           u.role === "admin"
                             ? "bg-red-100 text-red-700"
                             : "bg-green-100 text-green-700"
@@ -450,7 +450,7 @@ export function AdminDashboard() {
                     </td>
                     <td className="px-2 py-3">
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-[10.5px] font-medium ${
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-[12.5px] font-medium ${
                           u.isActive
                             ? "bg-green-100 text-green-700"
                             : "bg-gray-100 text-gray-500"
@@ -473,7 +473,7 @@ export function AdminDashboard() {
                               })
                             }
                             disabled={toggleStatus.isPending}
-                            className={`w-full px-2 py-1.5 rounded text-[10.5px] font-medium transition-colors whitespace-nowrap ${
+                            className={`w-full px-2 py-1.5 rounded text-[12.5px] font-medium transition-colors whitespace-nowrap ${
                               u.isActive
                                 ? "bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
                                 : "bg-green-100 text-green-700 hover:bg-green-200"
@@ -489,7 +489,7 @@ export function AdminDashboard() {
                               })
                             }
                             disabled={resetPassword.isPending}
-                            className="w-full px-2 py-1.5 rounded text-[10.5px] font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors whitespace-nowrap"
+                            className="w-full px-2 py-1.5 rounded text-[12.5px] font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors whitespace-nowrap"
                           >
                             Reset mật khẩu
                           </button>
@@ -501,7 +501,7 @@ export function AdminDashboard() {
                               })
                             }
                             disabled={openSensitiveView.isPending}
-                            className="w-full px-2 py-1.5 rounded text-[10.5px] font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors whitespace-nowrap"
+                            className="w-full px-2 py-1.5 rounded text-[12.5px] font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors whitespace-nowrap"
                           >
                             Xem chi tiết
                           </button>

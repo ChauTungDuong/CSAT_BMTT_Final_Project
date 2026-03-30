@@ -21,7 +21,6 @@ export interface CryptoStepEntry {
   iv?: string;
   tag?: string; // GCM auth tag
   authTag?: string; // NEW: Auth verification result (true/false as string)
-  hmac?: string;
   keySnippet?: string;
   status: 'success' | 'failure';
 }

@@ -57,7 +57,6 @@ const crypto = require('crypto');
 const oracledb = require('oracledb');
 
 const masterKey = Buffer.from(process.env.AES_MASTER_KEY, 'hex');
-const hmacSecret = Buffer.from(process.env.HMAC_SECRET, 'hex');
 
 function hmacSha256(key, data) {
   return crypto.createHmac('sha256', key).update(data).digest();
@@ -122,10 +121,6 @@ function encrypt(plaintext) {
   const p = ciphertext.toString('base64');
   const i = iv.toString('base64');
   const t = tag.toString('base64');
-  const hmac = crypto
-    .createHmac('sha256', hmacSecret)
-    .update(`${p}.${i}.${t}`)
-    .digest('hex');
   return Buffer.from(
     JSON.stringify({
       type: 'encrypted',
@@ -133,7 +128,6 @@ function encrypt(plaintext) {
       payload: p,
       iv: i,
       tag: t,
-      hmac,
     }),
   );
 }

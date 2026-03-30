@@ -71,5 +71,5 @@ INSERT INTO USERS (ID, USERNAME, PASSWORD_HASH, FULL_NAME, EMAIL, ROLE) VALUES (
 COMMIT;
 
 -- !! Lưu ý: Dữ liệu CUSTOMERS (phone, cccd, dob, address, pin_hash) và ACCOUNTS
--- được tạo bằng Node.js để mã hóa theo AES/HMAC đúng chuẩn ứng dụng.
+-- được tạo bằng Node.js để mã hóa theo AES-GCM đúng chuẩn ứng dụng.
 -- Chạy: node backend/scripts/seed-customers.js sau khi backend và Oracle khởi động.

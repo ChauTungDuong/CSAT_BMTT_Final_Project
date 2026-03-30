@@ -10,7 +10,6 @@ export interface EncryptedCell {
   payload: string; // base64 ciphertext
   iv: string; // base64 12-byte IV (ngẫu nhiên mỗi lần encrypt)
   tag: string; // base64 16-byte GCM auth tag
-  hmac?: string; // Backward compatibility with legacy payloads
 }
 
 export type CellValue = ClearCell | EncryptedCell;

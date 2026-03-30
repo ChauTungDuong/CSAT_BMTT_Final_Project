@@ -159,18 +159,15 @@ function mixColumns(state: Uint8Array): void {
  * @param w the expanded key words (Uint32Array of length 60).
  */
 export function encryptBlock(state: Uint8Array, w: Uint32Array): void {
-  // AddRoundKey Base
   addRoundKey(state, w, 0);
-
-  // 13 rounds of normal operations
+  // 13 rounds
   for (let round = 1; round < 14; round++) {
     subBytes(state);
     shiftRows(state);
     mixColumns(state);
     addRoundKey(state, w, round);
   }
-
-  // Final round 14 (No MixColumns)
+  // Final round
   subBytes(state);
   shiftRows(state);
   addRoundKey(state, w, 14);

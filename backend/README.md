@@ -24,7 +24,6 @@ Important variables:
 - DB_HOST, DB_PORT, DB_SERVICE (local fallback)
 - JWT_SECRET
 - AES_MASTER_KEY
-- HMAC_SECRET
 
 ## 2) Run App
 
@@ -41,6 +40,7 @@ Cloud-first scripts:
 ```bash
 npm run db:cloud:reset-migrate-seed
 npm run db:migrate:cloud
+npm run db:migrate:remove-cell-hmac
 npm run db:seed:customers
 npm run db:fix-passwords
 ```
@@ -50,6 +50,7 @@ Local fallback scripts:
 ```bash
 npm run db:local:reset-migrate-seed
 npm run db:migrate:docker
+npm run db:migrate:remove-cell-hmac:local
 npm run db:seed:customers:local
 npm run db:fix-passwords:local
 ```

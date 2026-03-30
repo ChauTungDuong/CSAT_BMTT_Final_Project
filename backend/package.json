@@ -25,6 +25,8 @@
     "db:local:reset-migrate-seed": "node scripts/reset-migrate-seed.js --mode=local",
     "db:migrate:cloud": "node scripts/reset-migrate-seed.js --mode=cloud --migrate-only",
     "db:migrate:docker": "node scripts/reset-migrate-seed.js --mode=local --migrate-only",
+    "db:migrate:remove-cell-hmac": "node scripts/migrate-remove-cell-hmac.js --mode=cloud",
+    "db:migrate:remove-cell-hmac:local": "node scripts/migrate-remove-cell-hmac.js --mode=local",
     "db:fix-passwords": "node scripts/fix-passwords.js --mode=cloud",
     "db:fix-passwords:local": "node scripts/fix-passwords.js --mode=local"
   },

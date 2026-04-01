@@ -453,55 +453,17 @@ export class AdminService {
     adminPin: string,
     reason: string,
   ) {
-    if (!reason?.trim()) {
-      throw new BadRequestException('Phải nhập lý do xem thông tin chi tiết');
-    }
-    await this.verifyAdminPin(adminId, adminPin);
-
-    const user = await this.userRepo.findOne({ where: { id: targetUserId } });
-    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
-
-    const customer = await this.customerRepo.findOne({
-      where: { userId: targetUserId },
-    });
-    if (!customer)
-      throw new NotFoundException('Không tìm thấy hồ sơ khách hàng');
-
-    const [phone, cccd, dateOfBirth, address] = await Promise.all([
-      this.aes.decrypt(this.aes.deserialize(customer.phone)),
-      this.aes.decrypt(this.aes.deserialize(customer.cccd)),
-      this.aes.decrypt(this.aes.deserialize(customer.dateOfBirth)),
-      this.aes.decrypt(this.aes.deserialize(customer.address)),
-    ]);
-
-    const viewToken = crypto.randomUUID();
-    const expiresAt = Date.now() + 2 * 60 * 1000;
-    this.adminViewSessions.set(viewToken, {
-      adminId,
-      targetUserId,
-      reason,
-      expiresAt,
-    });
-
     await this.audit.log(
-      'ADMIN_VIEW_SENSITIVE_OPEN',
+      'ADMIN_VIEW_SENSITIVE_BLOCKED',
       adminId,
       targetUserId,
       ip,
-      `reason: ${reason}`,
+      `reason: ${reason || 'feature disabled'}`,
     );
 
-    return {
-      viewToken,
-      expiresAt: new Date(expiresAt).toISOString(),
-      details: {
-        email: user.email,
-        phone: phone ?? '',
-        cccd: cccd ?? '',
-        dateOfBirth: dateOfBirth ?? '',
-        address: address ?? '',
-      },
-    };
+    throw new ForbiddenException(
+      'Tạm thời ẩn chức năng admin xem chi tiết người dùng theo chính sách bảo mật',
+    );
   }
 
   async closeSensitiveUserView(viewToken: string, adminId: string, ip: string) {

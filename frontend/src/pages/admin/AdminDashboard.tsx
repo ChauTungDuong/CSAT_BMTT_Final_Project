@@ -493,18 +493,7 @@ export function AdminDashboard() {
                           >
                             Reset mật khẩu
                           </button>
-                          <button
-                            onClick={() =>
-                              openActionModal({
-                                type: "view-details",
-                                user: u,
-                              })
-                            }
-                            disabled={openSensitiveView.isPending}
-                            className="w-full px-2 py-1.5 rounded text-[12.5px] font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors whitespace-nowrap"
-                          >
-                            Xem chi tiết
-                          </button>
+                          {/* Temporarily hidden by security policy */}
                         </div>
                       )}
                     </td>

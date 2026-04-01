@@ -180,8 +180,12 @@ export class MaskingEngine {
 
     const local = value.slice(0, atIndex);
     const domain = value.slice(atIndex);
-    if (local.length <= 1) {
-      return `*${domain}`;
+    if (local.length <= 2) {
+      return `${'*'.repeat(local.length)}${domain}`;
+    }
+
+    if (local.length <= 4) {
+      return `${local.slice(0, -2)}**${domain}`;
     }
 
     return `${local.slice(0, -1)}*${domain}`;

@@ -4,12 +4,10 @@ import {
   Post,
   Put,
   Body,
-  Param,
   Req,
   UseGuards,
   HttpCode,
   HttpStatus,
-  ForbiddenException,
   NotFoundException,
   UnauthorizedException,
   Query,
@@ -46,7 +44,6 @@ export class CustomersController {
     return this.service.getProfile(
       customerId,
       req.user.sub,
-      Role.CUSTOMER,
       req.ip,
       viewToken,
     );
@@ -162,15 +159,6 @@ export class CustomersController {
       body.newPin,
       body.confirmPin,
       req.ip,
-    );
-  }
-
-  // Admin xem chi tiết một customer
-  @Get(':id')
-  @Roles(Role.ADMIN)
-  async getCustomerById(@Param('id') id: string, @Req() req: any) {
-    throw new ForbiddenException(
-      'Tạm thời ẩn chức năng admin xem chi tiết người dùng theo chính sách bảo mật',
     );
   }
 }

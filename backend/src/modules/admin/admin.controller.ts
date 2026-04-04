@@ -74,40 +74,6 @@ export class AdminController {
     );
   }
 
-  @Post('users/:id/view-details')
-  openSensitiveView(
-    @Param('id') id: string,
-    @Body() body: { adminPin: string; reason: string },
-    @Req() req: any,
-  ) {
-    return this.service.openSensitiveUserView(
-      id,
-      req.user.sub,
-      req.ip,
-      body.adminPin,
-      body.reason,
-    );
-  }
-
-  @Post('view-sessions/close')
-  closeSensitiveView(@Body() body: { viewToken: string }, @Req() req: any) {
-    return this.service.closeSensitiveUserView(
-      body.viewToken,
-      req.user.sub,
-      req.ip,
-    );
-  }
-
-  // Đổi vai trò người dùng
-  @Patch('users/:id/role')
-  changeRole(
-    @Param('id') id: string,
-    @Body() body: { role: string },
-    @Req() req: any,
-  ) {
-    return this.service.changeUserRole(id, body.role, req.user.sub, req.ip);
-  }
-
   // Audit log
   @Get('audit-logs')
   getAuditLogs(

@@ -95,7 +95,6 @@ export class CustomersService {
   async getProfile(
     customerId: string,
     viewerId: string,
-    viewerRole: Role,
     ip: string,
     viewToken?: string,
   ) {
@@ -105,26 +104,18 @@ export class CustomersService {
     if (!customer) throw new NotFoundException('Không tìm thấy khách hàng');
 
     const isOwner = customer.userId === viewerId;
-    if (!isOwner && viewerRole === Role.ADMIN) {
-      throw new ForbiddenException(
-        'Tạm thời ẩn chức năng admin xem chi tiết người dùng theo chính sách bảo mật',
-      );
+    if (!isOwner) {
+      throw new ForbiddenException('Không có quyền truy cập hồ sơ này');
     }
 
-    const canDecrypt = isOwner;
+    const [phone, cccd, dob, address] = await Promise.all([
+      this.aes.decrypt(this.aes.deserialize(customer.phone as Buffer)),
+      this.aes.decrypt(this.aes.deserialize(customer.cccd as Buffer)),
+      this.aes.decrypt(this.aes.deserialize(customer.dateOfBirth as Buffer)),
+      this.aes.decrypt(this.aes.deserialize(customer.address as Buffer)),
+    ]);
 
-    const [phone, cccd, dob, address] = canDecrypt
-      ? await Promise.all([
-          this.aes.decrypt(this.aes.deserialize(customer.phone as Buffer)),
-          this.aes.decrypt(this.aes.deserialize(customer.cccd as Buffer)),
-          this.aes.decrypt(
-            this.aes.deserialize(customer.dateOfBirth as Buffer),
-          ),
-          this.aes.decrypt(this.aes.deserialize(customer.address as Buffer)),
-        ])
-      : [null, null, null, null];
-
-    const roleToUse = isOwner ? Role.CUSTOMER : viewerRole;
+    const roleToUse = Role.CUSTOMER;
     const pinMode = isOwner && this.isPinViewSessionValid(viewerId, viewToken);
 
     return {

@@ -84,12 +84,24 @@ api.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
 // Interceptor: redirect về login nếu 401 (ngoại trừ verify-pin)
 api.interceptors.response.use(
   async (response: AxiosResponse) => {
-    await maybeDecryptResponse(response);
+    try {
+      await maybeDecryptResponse(response);
+    } catch {
+      forceSecurityLogout("decrypt-failed");
+      throw new Error(
+        "Phản hồi nhạy cảm không thể giải mã hợp lệ. Phiên đã bị đóng vì lý do bảo mật.",
+      );
+    }
     return response;
   },
   async (error: AxiosError) => {
     if (error.response) {
-      await maybeDecryptResponse(error.response);
+      try {
+        await maybeDecryptResponse(error.response);
+      } catch {
+        forceSecurityLogout("decrypt-failed");
+        return Promise.reject(error);
+      }
     }
 
     const message = (error.response?.data as any)?.message;
@@ -113,8 +125,15 @@ api.interceptors.response.use(
 );
 
 async function maybeDecryptResponse(response: AxiosResponse): Promise<void> {
+  const sensitiveHeader = readResponseHeader(response, "x-app-sensitive");
+  const sensitiveByPath = isSensitiveResponsePath(String(response.config.url || ""));
+  const sensitiveRequired = sensitiveHeader === "1" || sensitiveByPath;
+
   const envelopeHeader = readResponseHeader(response, "x-app-envelope");
   if (envelopeHeader !== "1") {
+    if (sensitiveRequired) {
+      throw new Error("Sensitive response missing encrypted envelope header");
+    }
     return;
   }
 
@@ -123,9 +142,15 @@ async function maybeDecryptResponse(response: AxiosResponse): Promise<void> {
   const transportSessionKey = (response.config as TransportRequestConfig)
     ._transportSessionKey;
   if (!transportAad) {
+    if (sensitiveRequired) {
+      throw new Error("Sensitive response missing transport AAD");
+    }
     return;
   }
   if (!transportSessionKey) {
+    if (sensitiveRequired) {
+      throw new Error("Sensitive response missing transport session key");
+    }
     return;
   }
 
@@ -136,7 +161,9 @@ async function maybeDecryptResponse(response: AxiosResponse): Promise<void> {
       transportSessionKey,
     );
   } catch {
-    // Keep raw data for downstream handlers if decrypt fails.
+    if (sensitiveRequired) {
+      throw new Error("Sensitive response decryption failed");
+    }
   }
 }
 
@@ -219,6 +246,33 @@ function isStrictTransportRequired(url: string): boolean {
 function isBootstrapTransportPath(url: string): boolean {
   const lower = url.toLowerCase();
   return lower.includes("/transport/public-key");
+}
+
+function isSensitiveResponsePath(url: string): boolean {
+  const normalized = normalizePathForMatching(url);
+  return (
+    normalized === "/api/auth/me" ||
+    normalized === "/api/customers/me" ||
+    normalized === "/api/customers/me/verify-pin" ||
+    normalized === "/api/customers/me/pin/change/request-otp" ||
+    normalized === "/api/customers/me/pin/change/confirm" ||
+    normalized === "/api/customers/me/setup-pin"
+  );
+}
+
+function normalizePathForMatching(url: string): string {
+  const raw = url.split("?")[0] || "";
+  const withApiPrefix = raw.startsWith("/api")
+    ? raw
+    : raw.startsWith("/")
+      ? `/api${raw}`
+      : `/api/${raw}`;
+  return withApiPrefix.replace(/\/+/g, "/").toLowerCase();
+}
+
+function forceSecurityLogout(reason: "decrypt-failed" | "session-revoked") {
+  sessionStorage.removeItem("auth");
+  window.location.href = `/login?reason=${reason}`;
 }
 
 export default api;

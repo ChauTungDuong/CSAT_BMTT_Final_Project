@@ -109,36 +109,30 @@ function encryptEmail(email) {
 async function backfillTable(conn, tableName) {
   const idColumn = tableName === 'USERS' ? 'ID' : 'ID';
   const rows = await conn.execute(
-    `SELECT ${idColumn}, EMAIL, EMAIL_HASH FROM ${tableName}`,
+    `SELECT ${idColumn}, EMAIL_HASH FROM ${tableName}`,
   );
 
   let updated = 0;
   for (const row of rows.rows || []) {
     const id = row[0];
-    const email = row[1];
-    const currentHash = row[2];
+    const currentHash = row[1];
 
-    const normalized = normalizeEmail(email);
-    if (!normalized) continue;
+    // In encrypted-only schema, plaintext source is no longer available.
+    // Keep script focused on hash consistency for records already written by app/seed.
+    if (!currentHash) continue;
 
-    const emailHash = hashEmail(normalized);
+    const emailHash = String(currentHash).toLowerCase();
     if (currentHash === emailHash) {
       continue;
     }
 
-    const encrypted = encryptEmail(normalized);
-
     await conn.execute(
       `UPDATE ${tableName}
-       SET EMAIL = :email,
-           EMAIL_ENCRYPTED = :emailEncrypted,
-           EMAIL_HASH = :emailHash,
+       SET EMAIL_HASH = :emailHash,
            UPDATED_AT = SYSTIMESTAMP
        WHERE ${idColumn} = :id`,
       {
         id,
-        email: normalized,
-        emailEncrypted: { val: encrypted, type: oracledb.BUFFER },
         emailHash,
       },
     );

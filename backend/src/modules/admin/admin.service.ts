@@ -159,11 +159,8 @@ export class AdminService {
     if (!isActive) {
       const customer = await this.customerRepo.findOne({ where: { userId } });
       const recipient =
-        this.emailCrypto.readEmail(target.emailEncrypted, target.email) ||
-        this.emailCrypto.readEmail(
-          customer?.emailEncrypted || null,
-          customer?.email || '',
-        );
+        this.emailCrypto.readEmail(target.email) ||
+        this.emailCrypto.readEmail(customer?.email || null);
 
       if (!recipient) {
         warning = 'Không có email hợp lệ để gửi thông báo khóa tài khoản';

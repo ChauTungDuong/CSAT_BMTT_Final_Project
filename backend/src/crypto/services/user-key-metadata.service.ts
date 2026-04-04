@@ -19,8 +19,8 @@ export class UserKeyMetadataService {
     kdfAlgo?: string;
     kdfIterations: number;
     kdfSaltHex: string;
-    wrappedDekB64: string;
-    recoveryWrappedDekB64?: string | null;
+    wrappedDekB64: Buffer;
+    recoveryWrappedDekB64?: Buffer | null;
     keyVersion?: number;
     passwordEpoch?: number;
     migrationState?: string;

@@ -20,11 +20,11 @@ export class UserKeyMetadata {
   @Column({ name: 'KDF_SALT_HEX', length: 128 })
   kdfSaltHex: string;
 
-  @Column({ name: 'WRAPPED_DEK_B64', type: 'clob' })
-  wrappedDekB64: string;
+  @Column({ name: 'WRAPPED_DEK_B64', type: 'blob' })
+  wrappedDekB64: Buffer;
 
-  @Column({ name: 'RECOVERY_WRAPPED_DEK_B64', type: 'clob', nullable: true })
-  recoveryWrappedDekB64: string | null;
+  @Column({ name: 'RECOVERY_WRAPPED_DEK_B64', type: 'blob', nullable: true })
+  recoveryWrappedDekB64: Buffer | null;
 
   @Column({ name: 'KEY_VERSION', type: 'number', default: 1 })
   keyVersion: number;

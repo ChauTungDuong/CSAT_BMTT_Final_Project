@@ -76,12 +76,7 @@ export class AuthService {
       where: { emailHash },
     });
 
-    const existsByLegacyEmail = await this.userRepo
-      .createQueryBuilder('u')
-      .where('LOWER(u.email) = :email', { email: normalizedEmail })
-      .getOne();
-
-    const exists = existsByUsername || existsByEmail || existsByLegacyEmail;
+    const exists = existsByUsername || existsByEmail;
     if (exists)
       throw new ConflictException('Tên đăng nhập hoặc email đã tồn tại');
 
@@ -119,8 +114,7 @@ export class AuthService {
       username: dto.username,
       passwordHash,
       role: 'customer',
-      email: normalizedEmail,
-      emailEncrypted: this.emailCrypto.encryptEmail(normalizedEmail),
+      email: this.emailCrypto.encryptEmail(normalizedEmail),
       emailHash,
       fullName: dto.fullName,
       passwordFailedAttempts: 0,
@@ -143,8 +137,7 @@ export class AuthService {
       id: customerId,
       userId: userId,
       fullName: dto.fullName,
-      email: normalizedEmail,
-      emailEncrypted: this.emailCrypto.encryptEmail(normalizedEmail),
+      email: this.emailCrypto.encryptEmail(normalizedEmail),
       emailHash,
       phone: this.aesService.serialize(encPhone),
       cccd: this.aesService.serialize(encCccd),
@@ -344,25 +337,15 @@ export class AuthService {
       const existingEmail = await this.userRepo.findOne({
         where: { emailHash },
       });
-      const existingLegacyEmail = await this.userRepo
-        .createQueryBuilder('u')
-        .where('LOWER(u.email) = :email', { email: normalizedEmail })
-        .andWhere('u.id != :id', { id: userId })
-        .getOne();
 
-      if (
-        (existingEmail && existingEmail.id !== userId) ||
-        !!existingLegacyEmail
-      ) {
+      if (existingEmail && existingEmail.id !== userId) {
         throw new ConflictException('Email đã tồn tại');
       }
 
-      user.email = normalizedEmail;
-      user.emailEncrypted = this.emailCrypto.encryptEmail(normalizedEmail);
+      user.email = this.emailCrypto.encryptEmail(normalizedEmail);
       user.emailHash = emailHash;
-      if (customer) customer.email = normalizedEmail;
+      if (customer) customer.email = this.emailCrypto.encryptEmail(normalizedEmail);
       if (customer) {
-        customer.emailEncrypted = this.emailCrypto.encryptEmail(normalizedEmail);
         customer.emailHash = emailHash;
       }
     }
@@ -593,7 +576,7 @@ export class AuthService {
   }
 
   private resolveUserEmail(user: User): string {
-    return this.emailCrypto.readEmail(user.emailEncrypted, user.email);
+    return this.emailCrypto.readEmail(user.email);
   }
 
   private async ensureUserDekRuntime(
@@ -768,7 +751,7 @@ export class AuthService {
     password: string,
     saltHex: string,
     iterations: number,
-  ): string {
+  ): Buffer {
     const kek = this.userKeyDerivation.deriveKek(
       password,
       saltHex,
@@ -777,21 +760,24 @@ export class AuthService {
     );
     const iv = crypto.randomBytes(12);
     const { ciphertext, authTag } = encryptGCM(kek, iv, dek);
-    return JSON.stringify({
-      iv: Buffer.from(iv).toString('base64'),
-      tag: Buffer.from(authTag).toString('base64'),
-      payload: Buffer.from(ciphertext).toString('base64'),
-    });
+    return Buffer.from(
+      JSON.stringify({
+        iv: Buffer.from(iv).toString('base64'),
+        tag: Buffer.from(authTag).toString('base64'),
+        payload: Buffer.from(ciphertext).toString('base64'),
+      }),
+      'utf8',
+    );
   }
 
   private unwrapDekWithPassword(
-    wrappedDekB64: string,
+    wrappedDekB64: Buffer,
     password: string,
     saltHex: string,
     iterations: number,
   ): Buffer | null {
     try {
-      const wrapped = JSON.parse(wrappedDekB64) as {
+      const wrapped = JSON.parse(wrappedDekB64.toString('utf8')) as {
         iv: string;
         tag: string;
         payload: string;
@@ -816,23 +802,26 @@ export class AuthService {
     }
   }
 
-  private wrapDekWithRecoveryKey(dek: Buffer): string | null {
+  private wrapDekWithRecoveryKey(dek: Buffer): Buffer | null {
     if (!this.recoveryWrapKey) return null;
     const iv = crypto.randomBytes(12);
     const { ciphertext, authTag } = encryptGCM(this.recoveryWrapKey, iv, dek);
-    return JSON.stringify({
-      iv: Buffer.from(iv).toString('base64'),
-      tag: Buffer.from(authTag).toString('base64'),
-      payload: Buffer.from(ciphertext).toString('base64'),
-    });
+    return Buffer.from(
+      JSON.stringify({
+        iv: Buffer.from(iv).toString('base64'),
+        tag: Buffer.from(authTag).toString('base64'),
+        payload: Buffer.from(ciphertext).toString('base64'),
+      }),
+      'utf8',
+    );
   }
 
   private unwrapDekWithRecoveryKey(
-    wrappedDekB64?: string | null,
+    wrappedDekB64?: Buffer | null,
   ): Buffer | null {
     if (!this.recoveryWrapKey || !wrappedDekB64) return null;
     try {
-      const wrapped = JSON.parse(wrappedDekB64) as {
+      const wrapped = JSON.parse(wrappedDekB64.toString('utf8')) as {
         iv: string;
         tag: string;
         payload: string;

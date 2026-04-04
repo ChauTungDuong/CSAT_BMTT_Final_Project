@@ -79,9 +79,8 @@ export class EmailCryptoService {
     }
   }
 
-  readEmail(encrypted: Buffer | null | undefined, fallbackPlain?: string | null): string {
+  readEmail(encrypted: Buffer | null | undefined): string {
     const decrypted = this.decryptEmail(encrypted);
-    if (decrypted) return decrypted;
-    return this.normalizeEmail(fallbackPlain || '');
+    return decrypted ? this.normalizeEmail(decrypted) : '';
   }
 }

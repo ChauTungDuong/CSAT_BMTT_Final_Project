@@ -65,8 +65,7 @@ export class CustomersService {
       id,
       userId,
       fullName: dto.fullName,
-      email: this.emailCrypto.normalizeEmail(dto.email),
-      emailEncrypted: this.emailCrypto.encryptEmail(dto.email),
+      email: this.emailCrypto.encryptEmail(dto.email),
       emailHash: this.emailCrypto.hashEmail(dto.email),
       phone: this.aes.serialize(phone),
       cccd: this.aes.serialize(cccd),
@@ -132,7 +131,7 @@ export class CustomersService {
       id: customer.id,
       fullName: customer.fullName,
       email: this.masking.mask(
-        this.emailCrypto.readEmail(customer.emailEncrypted, customer.email),
+        this.emailCrypto.readEmail(customer.email),
         'email',
         roleToUse,
         pinMode,
@@ -196,25 +195,15 @@ export class CustomersService {
       const existingEmail = await this.userRepo.findOne({
         where: { emailHash },
       });
-      const existingLegacyEmail = await this.userRepo
-        .createQueryBuilder('u')
-        .where('LOWER(u.email) = :email', { email: normalizedEmail })
-        .andWhere('u.id != :id', { id: userId })
-        .getOne();
       if (existingEmail) {
         if (existingEmail.id !== userId) {
           throw new BadRequestException('Email đã tồn tại');
         }
       }
-      if (existingLegacyEmail) {
-        throw new BadRequestException('Email đã tồn tại');
-      }
 
-      customer.email = normalizedEmail;
-      customer.emailEncrypted = this.emailCrypto.encryptEmail(normalizedEmail);
+      customer.email = this.emailCrypto.encryptEmail(normalizedEmail);
       customer.emailHash = emailHash;
-      user.email = normalizedEmail;
-      user.emailEncrypted = this.emailCrypto.encryptEmail(normalizedEmail);
+      user.email = this.emailCrypto.encryptEmail(normalizedEmail);
       user.emailHash = emailHash;
     }
 
@@ -412,7 +401,10 @@ export class CustomersService {
     await this.customerRepo.save(customer);
 
     // Gửi email
-    await this.mailService.sendPinSetupEmail(customer.email);
+    const setupRecipient = this.emailCrypto.readEmail(customer.email);
+    if (setupRecipient) {
+      await this.mailService.sendPinSetupEmail(setupRecipient);
+    }
 
     await this.audit.log(
       'PIN_SETUP_SUCCESS',
@@ -498,7 +490,9 @@ export class CustomersService {
       throw new BadRequestException('PIN hiện tại không đúng');
     }
 
-    const recipient = (customer.email || user.email || '').trim();
+    const recipient =
+      this.emailCrypto.readEmail(customer.email) ||
+      this.emailCrypto.readEmail(user.email);
     if (!recipient) {
       throw new BadRequestException('Không tìm thấy email để gửi OTP');
     }

@@ -151,11 +151,14 @@ function wrapDekWithKey(kek, dek) {
   const ciphertext = Buffer.concat([cipher.update(dek), cipher.final()]);
   const tag = cipher.getAuthTag();
 
-  return JSON.stringify({
-    iv: iv.toString('base64'),
-    tag: tag.toString('base64'),
-    payload: ciphertext.toString('base64'),
-  });
+  return Buffer.from(
+    JSON.stringify({
+      iv: iv.toString('base64'),
+      tag: tag.toString('base64'),
+      payload: ciphertext.toString('base64'),
+    }),
+    'utf8',
+  );
 }
 
 function hashAccountNumber(accountNumber) {
@@ -238,6 +241,111 @@ const customers = [
     balance: '7800000',
     pin: '123456',
   },
+  {
+    userId: 'USR-CUST-004',
+    customerId: 'CUS-CUST-004',
+    accountId: 'ACC-CUST-004',
+    username: 'customer04',
+    fullName: 'Pham Thi Dung',
+    email: 'customer04@bank.local',
+    phone: '0901111114',
+    cccd: '079204001004',
+    dob: '14/02/1992',
+    address: '92 Bach Dang, Hai Chau, Da Nang',
+    accountNumber: 'VN1000000004',
+    balance: '980000',
+    pin: '123456',
+  },
+  {
+    userId: 'USR-CUST-005',
+    customerId: 'CUS-CUST-005',
+    accountId: 'ACC-CUST-005',
+    username: 'customer05',
+    fullName: 'Vo Minh Duc',
+    email: 'customer05@bank.local',
+    phone: '0901111115',
+    cccd: '079204001005',
+    dob: '03/05/1987',
+    address: '18 Nguyen Trai, Thanh Xuan, Ha Noi',
+    accountNumber: 'VN1000000005',
+    balance: '12500000',
+    pin: '123456',
+  },
+  {
+    userId: 'USR-CUST-006',
+    customerId: 'CUS-CUST-006',
+    accountId: 'ACC-CUST-006',
+    username: 'customer06',
+    fullName: 'Bui Thu Ha',
+    email: 'customer06@bank.local',
+    phone: '0901111116',
+    cccd: '079204001006',
+    dob: '30/09/1998',
+    address: '77 Le Loi, Vinh Ninh, Hue',
+    accountNumber: 'VN1000000006',
+    balance: '2650000',
+    pin: '123456',
+  },
+  {
+    userId: 'USR-CUST-007',
+    customerId: 'CUS-CUST-007',
+    accountId: 'ACC-CUST-007',
+    username: 'customer07',
+    fullName: 'Dang Quang Hung',
+    email: 'customer07@bank.local',
+    phone: '0901111117',
+    cccd: '079204001007',
+    dob: '12/12/1991',
+    address: '10 Le Thanh Ton, Ninh Kieu, Can Tho',
+    accountNumber: 'VN1000000007',
+    balance: '4300000',
+    pin: '123456',
+  },
+  {
+    userId: 'USR-CUST-008',
+    customerId: 'CUS-CUST-008',
+    accountId: 'ACC-CUST-008',
+    username: 'customer08',
+    fullName: 'Nguyen Khanh Linh',
+    email: 'customer08@bank.local',
+    phone: '0901111118',
+    cccd: '079204001008',
+    dob: '07/01/1996',
+    address: '9 Tran Hung Dao, Hong Bang, Hai Phong',
+    accountNumber: 'VN1000000008',
+    balance: '5600000',
+    pin: '123456',
+  },
+  {
+    userId: 'USR-CUST-009',
+    customerId: 'CUS-CUST-009',
+    accountId: 'ACC-CUST-009',
+    username: 'customer09',
+    fullName: 'Do Gia Minh',
+    email: 'customer09@bank.local',
+    phone: '0901111119',
+    cccd: '079204001009',
+    dob: '19/04/1993',
+    address: '120 Dien Bien Phu, Binh Thanh, TP.HCM',
+    accountNumber: 'VN1000000009',
+    balance: '300000',
+    pin: '123456',
+  },
+  {
+    userId: 'USR-CUST-010',
+    customerId: 'CUS-CUST-010',
+    accountId: 'ACC-CUST-010',
+    username: 'customer10',
+    fullName: 'Pham Quynh Nhu',
+    email: 'customer10@bank.local',
+    phone: '0901111120',
+    cccd: '079204001010',
+    dob: '25/08/1994',
+    address: '45 Nguyen Van Linh, Hai Chau, Da Nang',
+    accountNumber: 'VN1000000010',
+    balance: '15000000',
+    pin: '123456',
+  },
 ];
 
 async function upsertUser(conn, payload) {
@@ -256,7 +364,6 @@ async function upsertUser(conn, payload) {
            PASSWORD_HASH = :passwordHash,
            FULL_NAME = :fullName,
            EMAIL = :email,
-           EMAIL_ENCRYPTED = :emailEncrypted,
            EMAIL_HASH = :emailHash,
            ROLE = :role,
            IS_ACTIVE = 1,
@@ -266,8 +373,7 @@ async function upsertUser(conn, payload) {
        WHERE ID = :id`,
       {
         ...payload,
-        email: normalizedEmail,
-        emailEncrypted: { val: emailEncrypted, type: oracledb.BUFFER },
+        email: { val: emailEncrypted, type: oracledb.BUFFER },
         emailHash,
       },
     );
@@ -276,14 +382,13 @@ async function upsertUser(conn, payload) {
 
   await conn.execute(
     `INSERT INTO USERS (
-       ID, USERNAME, PASSWORD_HASH, FULL_NAME, EMAIL, EMAIL_ENCRYPTED, EMAIL_HASH, ROLE, IS_ACTIVE, ADMIN_PIN_HASH, FORCE_PASSWORD_CHANGE
+       ID, USERNAME, PASSWORD_HASH, FULL_NAME, EMAIL, EMAIL_HASH, ROLE, IS_ACTIVE, ADMIN_PIN_HASH, FORCE_PASSWORD_CHANGE
      ) VALUES (
-       :id, :username, :passwordHash, :fullName, :email, :emailEncrypted, :emailHash, :role, 1, :adminPinHash, 0
+       :id, :username, :passwordHash, :fullName, :email, :emailHash, :role, 1, :adminPinHash, 0
      )`,
     {
       ...payload,
-      email: normalizedEmail,
-      emailEncrypted: { val: emailEncrypted, type: oracledb.BUFFER },
+      email: { val: emailEncrypted, type: oracledb.BUFFER },
       emailHash,
     },
   );
@@ -312,7 +417,6 @@ async function upsertCustomer(conn, c, userDek) {
        SET USER_ID = :userId,
            FULL_NAME = :fullName,
            EMAIL = :email,
-           EMAIL_ENCRYPTED = :emailEncrypted,
            EMAIL_HASH = :emailHash,
            PHONE = :phone,
            CCCD = :cccd,
@@ -328,8 +432,7 @@ async function upsertCustomer(conn, c, userDek) {
         id: customerId,
         userId: c.userId,
         fullName: c.fullName,
-        email: normalizedEmail,
-        emailEncrypted: { val: emailEncrypted, type: oracledb.BUFFER },
+        email: { val: emailEncrypted, type: oracledb.BUFFER },
         emailHash,
         phone: { val: encPhone, type: oracledb.BUFFER },
         cccd: { val: encCccd, type: oracledb.BUFFER },
@@ -343,18 +446,17 @@ async function upsertCustomer(conn, c, userDek) {
 
   await conn.execute(
     `INSERT INTO CUSTOMERS (
-       ID, USER_ID, FULL_NAME, EMAIL, EMAIL_ENCRYPTED, EMAIL_HASH, PHONE, CCCD, DATE_OF_BIRTH, ADDRESS,
+       ID, USER_ID, FULL_NAME, EMAIL, EMAIL_HASH, PHONE, CCCD, DATE_OF_BIRTH, ADDRESS,
        PIN_HASH, PIN_FAILED_ATTEMPTS, PIN_LOCKED, PIN_LOCKED_AT
      ) VALUES (
-       :id, :userId, :fullName, :email, :emailEncrypted, :emailHash, :phone, :cccd, :dob, :address,
+       :id, :userId, :fullName, :email, :emailHash, :phone, :cccd, :dob, :address,
        :pinHash, 0, 0, NULL
      )`,
     {
       id: c.customerId,
       userId: c.userId,
       fullName: c.fullName,
-      email: normalizedEmail,
-      emailEncrypted: { val: emailEncrypted, type: oracledb.BUFFER },
+      email: { val: emailEncrypted, type: oracledb.BUFFER },
       emailHash,
       phone: { val: encPhone, type: oracledb.BUFFER },
       cccd: { val: encCccd, type: oracledb.BUFFER },
@@ -448,8 +550,10 @@ async function upsertUserKeyMetadata(conn, userId, password, userDek) {
         userId,
         kdfIterations,
         kdfSaltHex,
-        wrappedDekB64,
-        recoveryWrappedDekB64,
+        wrappedDekB64: { val: wrappedDekB64, type: oracledb.BUFFER },
+        recoveryWrappedDekB64: recoveryWrappedDekB64
+          ? { val: recoveryWrappedDekB64, type: oracledb.BUFFER }
+          : null,
       },
     );
     return;
@@ -469,8 +573,10 @@ async function upsertUserKeyMetadata(conn, userId, password, userDek) {
       userId,
       kdfIterations,
       kdfSaltHex,
-      wrappedDekB64,
-      recoveryWrappedDekB64,
+      wrappedDekB64: { val: wrappedDekB64, type: oracledb.BUFFER },
+      recoveryWrappedDekB64: recoveryWrappedDekB64
+        ? { val: recoveryWrappedDekB64, type: oracledb.BUFFER }
+        : null,
     },
   );
 }
@@ -601,8 +707,8 @@ async function ensureUserKeyMetadataSchema(conn) {
         KDF_ALGO VARCHAR2(32) DEFAULT 'pbkdf2-sha256' NOT NULL,
         KDF_ITERATIONS NUMBER(10, 0) DEFAULT 310000 NOT NULL,
         KDF_SALT_HEX VARCHAR2(128) NOT NULL,
-        WRAPPED_DEK_B64 CLOB NOT NULL,
-        RECOVERY_WRAPPED_DEK_B64 CLOB,
+        WRAPPED_DEK_B64 BLOB NOT NULL,
+        RECOVERY_WRAPPED_DEK_B64 BLOB,
         KEY_VERSION NUMBER(10, 0) DEFAULT 1 NOT NULL,
         PASSWORD_EPOCH NUMBER(10, 0) DEFAULT 1 NOT NULL,
         MIGRATION_STATE VARCHAR2(24) DEFAULT 'legacy' NOT NULL,
@@ -628,7 +734,7 @@ async function ensureUserKeyMetadataSchema(conn) {
     !(await columnExists(conn, 'USER_KEY_METADATA', 'RECOVERY_WRAPPED_DEK_B64'))
   ) {
     await conn.execute(
-      `ALTER TABLE USER_KEY_METADATA ADD (RECOVERY_WRAPPED_DEK_B64 CLOB)`,
+      `ALTER TABLE USER_KEY_METADATA ADD (RECOVERY_WRAPPED_DEK_B64 BLOB)`,
     );
   }
 

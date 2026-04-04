@@ -135,7 +135,6 @@ export function AdminDashboard() {
   };
 
   const closeActionModal = () => {
-    if (isActionSubmitting) return;
     setActionModal(null);
     setActionError("");
     setAdminPin("");
@@ -431,7 +430,7 @@ export function AdminDashboard() {
       </div>
 
       {actionModal && activeActionConfig && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-black/20 backdrop-blur-[1px] flex items-center justify-center p-4">
           <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl border border-gray-200">
             <div className="px-6 py-4 border-b bg-slate-50 rounded-t-2xl">
               <h3 className="text-lg font-semibold text-slate-800">

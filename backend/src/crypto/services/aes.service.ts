@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import {
   CellValue,
@@ -13,32 +12,30 @@ import { UserDekRuntimeService } from './user-dek-runtime.service';
 @Injectable()
 export class AesService implements ICryptoService {
   private readonly logger = new Logger(AesService.name);
-  private readonly masterKey: Buffer;
 
   constructor(
-    private readonly config: ConfigService,
     private readonly traceContext: CryptoTraceContextService,
     private readonly userDekRuntime: UserDekRuntimeService,
-  ) {
-    const keyHex = config.getOrThrow<string>('AES_MASTER_KEY');
-
-    if (keyHex.length !== 64)
-      throw new Error('AES_MASTER_KEY phải là 64 hex chars (32 bytes)');
-
-    this.masterKey = Buffer.from(keyHex, 'hex');
-  }
+  ) {}
 
   async encrypt(plaintext: string): Promise<CellValue> {
     const traceUserId = this.traceContext.getUserId();
-    if (traceUserId) {
-      return this.encryptForUser(traceUserId, plaintext);
+    if (!traceUserId || traceUserId === 'anonymous') {
+      throw new Error(
+        'Thiếu user context để mã hóa dữ liệu nhạy cảm (master key fallback đã bị tắt)',
+      );
     }
-    return this.encryptWithKey(this.masterKey, plaintext);
+    return this.encryptForUser(traceUserId, plaintext);
   }
 
   async encryptForUser(userId: string, plaintext: string): Promise<CellValue> {
-    const key = this.resolveKeyForUser(userId);
-    return this.encryptWithKey(key, plaintext);
+    const userDek = this.userDekRuntime.getUserDek(userId);
+    if (!userDek) {
+      throw new Error(
+        'Không có user DEK runtime để mã hóa (master key fallback đã bị tắt)',
+      );
+    }
+    return this.encryptWithKey(userDek, plaintext);
   }
 
   private async encryptWithKey(
@@ -71,11 +68,12 @@ export class AesService implements ICryptoService {
     if (cell.type === 'clear') return cell.data;
 
     const traceUserId = this.traceContext.getUserId();
-    if (traceUserId) {
-      return this.decryptForUser(traceUserId, cell);
+    if (!traceUserId || traceUserId === 'anonymous') {
+      throw new Error(
+        'Thiếu user context để giải mã dữ liệu nhạy cảm',
+      );
     }
-
-    return this.decryptWithKey(this.masterKey, cell, false);
+    return this.decryptForUser(traceUserId, cell);
   }
 
   async decryptForUser(
@@ -86,16 +84,12 @@ export class AesService implements ICryptoService {
 
     const userDek = this.userDekRuntime.getUserDek(userId);
     if (!userDek) {
-      return this.decryptWithKey(this.masterKey, cell, false);
+      throw new Error(
+        'Không có user DEK runtime để giải mã (master key fallback đã bị tắt)',
+      );
     }
 
-    const byUserKey = await this.decryptWithKey(userDek, cell, true);
-    if (byUserKey !== null) {
-      return byUserKey;
-    }
-
-    // Migration fallback for legacy data encrypted by global key.
-    return this.decryptWithKey(this.masterKey, cell, false);
+    return this.decryptWithKey(userDek, cell, false);
   }
 
   private async decryptWithKey(
@@ -123,11 +117,6 @@ export class AesService implements ICryptoService {
       }
       return null;
     }
-  }
-
-  private resolveKeyForUser(userId: string): Buffer {
-    const userDek = this.userDekRuntime.getUserDek(userId);
-    return userDek ?? this.masterKey;
   }
 
   serialize(cell: CellValue): Buffer {

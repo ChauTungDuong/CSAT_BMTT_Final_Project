@@ -26,6 +26,10 @@ import { UserKeyMetadataService } from '../../crypto/services/user-key-metadata.
 import { EmailCryptoService } from '../../crypto/services/email-crypto.service';
 import { MailService } from '../customers/mail.service';
 import { SessionRegistryService } from './services/session-registry.service';
+import {
+  CellValue,
+  EncryptedCell,
+} from '../../crypto/interfaces/crypto.interface';
 
 @Injectable()
 export class AuthService {
@@ -76,28 +80,20 @@ export class AuthService {
       where: { emailHash },
     });
 
-    const existsByLegacyEmail = await this.userRepo
-      .createQueryBuilder('u')
-      .where('LOWER(u.email) = :email', { email: normalizedEmail })
-      .getOne();
-
-    const exists = existsByUsername || existsByEmail || existsByLegacyEmail;
+    const exists = existsByUsername || existsByEmail;
     if (exists)
       throw new ConflictException('Tên đăng nhập hoặc email đã tồn tại');
 
-    // Uniqueness check for phone and cccd (decryption needed)
+    // Uniqueness check for phone and cccd.
+    // Do not use context-dependent decrypt() here because register is pre-auth flow.
     const allCustomers = await this.customerRepo.find();
     for (const c of allCustomers) {
-      const decPhone = await this.aesService.decrypt(
-        this.aesService.deserialize(c.phone),
-      );
-      const decCccd = await this.aesService.decrypt(
-        this.aesService.deserialize(c.cccd),
-      );
-      if (decPhone === dto.phone) {
+      const decPhone = await this.decryptCustomerFieldForUniqueness(c, c.phone);
+      const decCccd = await this.decryptCustomerFieldForUniqueness(c, c.cccd);
+      if (decPhone !== null && decPhone === dto.phone) {
         throw new ConflictException('Số điện thoại đã tồn tại');
       }
-      if (decCccd === dto.cccd) {
+      if (decCccd !== null && decCccd === dto.cccd) {
         throw new ConflictException('Căn cước công dân đã tồn tại');
       }
     }
@@ -119,8 +115,7 @@ export class AuthService {
       username: dto.username,
       passwordHash,
       role: 'customer',
-      email: normalizedEmail,
-      emailEncrypted: this.emailCrypto.encryptEmail(normalizedEmail),
+      email: this.emailCrypto.encryptEmail(normalizedEmail),
       emailHash,
       fullName: dto.fullName,
       passwordFailedAttempts: 0,
@@ -143,8 +138,7 @@ export class AuthService {
       id: customerId,
       userId: userId,
       fullName: dto.fullName,
-      email: normalizedEmail,
-      emailEncrypted: this.emailCrypto.encryptEmail(normalizedEmail),
+      email: this.emailCrypto.encryptEmail(normalizedEmail),
       emailHash,
       phone: this.aesService.serialize(encPhone),
       cccd: this.aesService.serialize(encCccd),
@@ -344,25 +338,16 @@ export class AuthService {
       const existingEmail = await this.userRepo.findOne({
         where: { emailHash },
       });
-      const existingLegacyEmail = await this.userRepo
-        .createQueryBuilder('u')
-        .where('LOWER(u.email) = :email', { email: normalizedEmail })
-        .andWhere('u.id != :id', { id: userId })
-        .getOne();
 
-      if (
-        (existingEmail && existingEmail.id !== userId) ||
-        !!existingLegacyEmail
-      ) {
+      if (existingEmail && existingEmail.id !== userId) {
         throw new ConflictException('Email đã tồn tại');
       }
 
-      user.email = normalizedEmail;
-      user.emailEncrypted = this.emailCrypto.encryptEmail(normalizedEmail);
+      user.email = this.emailCrypto.encryptEmail(normalizedEmail);
       user.emailHash = emailHash;
-      if (customer) customer.email = normalizedEmail;
+      if (customer)
+        customer.email = this.emailCrypto.encryptEmail(normalizedEmail);
       if (customer) {
-        customer.emailEncrypted = this.emailCrypto.encryptEmail(normalizedEmail);
         customer.emailHash = emailHash;
       }
     }
@@ -593,7 +578,7 @@ export class AuthService {
   }
 
   private resolveUserEmail(user: User): string {
-    return this.emailCrypto.readEmail(user.emailEncrypted, user.email);
+    return this.emailCrypto.readEmail(user.email);
   }
 
   private async ensureUserDekRuntime(
@@ -768,7 +753,7 @@ export class AuthService {
     password: string,
     saltHex: string,
     iterations: number,
-  ): string {
+  ): Buffer {
     const kek = this.userKeyDerivation.deriveKek(
       password,
       saltHex,
@@ -777,21 +762,24 @@ export class AuthService {
     );
     const iv = crypto.randomBytes(12);
     const { ciphertext, authTag } = encryptGCM(kek, iv, dek);
-    return JSON.stringify({
-      iv: Buffer.from(iv).toString('base64'),
-      tag: Buffer.from(authTag).toString('base64'),
-      payload: Buffer.from(ciphertext).toString('base64'),
-    });
+    return Buffer.from(
+      JSON.stringify({
+        iv: Buffer.from(iv).toString('base64'),
+        tag: Buffer.from(authTag).toString('base64'),
+        payload: Buffer.from(ciphertext).toString('base64'),
+      }),
+      'utf8',
+    );
   }
 
   private unwrapDekWithPassword(
-    wrappedDekB64: string,
+    wrappedDekB64: Buffer,
     password: string,
     saltHex: string,
     iterations: number,
   ): Buffer | null {
     try {
-      const wrapped = JSON.parse(wrappedDekB64) as {
+      const wrapped = JSON.parse(wrappedDekB64.toString('utf8')) as {
         iv: string;
         tag: string;
         payload: string;
@@ -816,23 +804,26 @@ export class AuthService {
     }
   }
 
-  private wrapDekWithRecoveryKey(dek: Buffer): string | null {
+  private wrapDekWithRecoveryKey(dek: Buffer): Buffer | null {
     if (!this.recoveryWrapKey) return null;
     const iv = crypto.randomBytes(12);
     const { ciphertext, authTag } = encryptGCM(this.recoveryWrapKey, iv, dek);
-    return JSON.stringify({
-      iv: Buffer.from(iv).toString('base64'),
-      tag: Buffer.from(authTag).toString('base64'),
-      payload: Buffer.from(ciphertext).toString('base64'),
-    });
+    return Buffer.from(
+      JSON.stringify({
+        iv: Buffer.from(iv).toString('base64'),
+        tag: Buffer.from(authTag).toString('base64'),
+        payload: Buffer.from(ciphertext).toString('base64'),
+      }),
+      'utf8',
+    );
   }
 
   private unwrapDekWithRecoveryKey(
-    wrappedDekB64?: string | null,
+    wrappedDekB64?: Buffer | null,
   ): Buffer | null {
     if (!this.recoveryWrapKey || !wrappedDekB64) return null;
     try {
-      const wrapped = JSON.parse(wrappedDekB64) as {
+      const wrapped = JSON.parse(wrappedDekB64.toString('utf8')) as {
         iv: string;
         tag: string;
         payload: string;
@@ -851,5 +842,52 @@ export class AuthService {
 
   private generateOtpCode() {
     return `${crypto.randomInt(0, 1_000_000)}`.padStart(6, '0');
+  }
+
+  private async decryptCustomerFieldForUniqueness(
+    customer: Customer,
+    rawCell: any,
+  ): Promise<string | null> {
+    const blob = await this.aesService.readOracleLob(rawCell);
+    const cell = this.aesService.deserialize(blob);
+
+    // Fast path: runtime DEK exists for active sessions.
+    try {
+      const plain = await this.aesService.decryptForUser(customer.userId, cell);
+      if (plain !== null) {
+        return plain;
+      }
+    } catch {
+      // Fallback below.
+    }
+
+    const metadata = await this.userKeyMetadata.findByUserId(customer.userId);
+    const recoveredDek = this.unwrapDekWithRecoveryKey(
+      metadata?.recoveryWrappedDekB64,
+    );
+    if (!recoveredDek) {
+      return null;
+    }
+
+    return this.decryptCellWithDek(cell, recoveredDek);
+  }
+
+  private decryptCellWithDek(cell: CellValue, dek: Buffer): string | null {
+    if (cell.type === 'clear') {
+      return cell.data;
+    }
+
+    const enc = cell as EncryptedCell;
+    try {
+      const plain = decryptGCM(
+        dek,
+        Buffer.from(enc.iv, 'base64'),
+        Buffer.from(enc.payload, 'base64'),
+        Buffer.from(enc.tag, 'base64'),
+      );
+      return Buffer.from(plain).toString('utf8');
+    } catch {
+      return null;
+    }
   }
 }

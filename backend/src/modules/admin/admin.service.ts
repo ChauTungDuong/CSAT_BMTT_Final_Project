@@ -15,19 +15,10 @@ import { Role } from '../../common/types/role.enum';
 import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
 import { EmailCryptoService } from '../../crypto/services/email-crypto.service';
 import { MailService } from '../customers/mail.service';
+import { SessionRegistryService } from '../auth/services/session-registry.service';
 
 @Injectable()
 export class AdminService {
-  private readonly adminViewSessions = new Map<
-    string,
-    {
-      adminId: string;
-      targetUserId: string;
-      reason: string;
-      expiresAt: number;
-    }
-  >();
-
   constructor(
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
@@ -36,6 +27,7 @@ export class AdminService {
     private pbkdf2: Pbkdf2Service,
     private emailCrypto: EmailCryptoService,
     private mailService: MailService,
+    private sessionRegistry: SessionRegistryService,
   ) {}
 
   async getUsers(page: number, limit: number, q?: string) {
@@ -124,13 +116,17 @@ export class AdminService {
       );
     }
 
-    await this.userRepo.update(userId, {
-      isActive: isActive ? 1 : 0,
-      lockReason: isActive ? 'NONE' : 'ADMIN',
-    });
-
-    // Nếu mở khóa thì reset bộ đếm PIN sai
     if (isActive) {
+      // Mở khóa phải reset đồng bộ cả cờ khóa và bộ đếm để không bị tái khóa giả.
+      await this.userRepo.update(userId, {
+        isActive: 1,
+        passwordFailedAttempts: 0,
+        forgotOtpFailedAttempts: 0,
+        passwordLocked: 0,
+        passwordLockedAt: null,
+        lockReason: 'NONE',
+      });
+
       const customer = await this.customerRepo.findOne({ where: { userId } });
       if (customer) {
         customer.pinFailedAttempts = 0;
@@ -138,13 +134,14 @@ export class AdminService {
         customer.pinLockedAt = null;
         await this.customerRepo.save(customer);
       }
+    } else {
+      await this.userRepo.update(userId, {
+        isActive: 0,
+        lockReason: 'ADMIN',
+      });
 
-      target.passwordFailedAttempts = 0;
-      target.forgotOtpFailedAttempts = 0;
-      target.passwordLocked = 0;
-      target.passwordLockedAt = null;
-      target.lockReason = 'NONE';
-      await this.userRepo.save(target);
+      // Revoke session ngay để user bị đăng xuất ở request kế tiếp.
+      this.sessionRegistry.invalidateSession(userId);
     }
 
     await this.audit.log(
@@ -159,11 +156,8 @@ export class AdminService {
     if (!isActive) {
       const customer = await this.customerRepo.findOne({ where: { userId } });
       const recipient =
-        this.emailCrypto.readEmail(target.emailEncrypted, target.email) ||
-        this.emailCrypto.readEmail(
-          customer?.emailEncrypted || null,
-          customer?.email || '',
-        );
+        this.emailCrypto.readEmail(target.email) ||
+        this.emailCrypto.readEmail(customer?.email || null);
 
       if (!recipient) {
         warning = 'Không có email hợp lệ để gửi thông báo khóa tài khoản';
@@ -191,42 +185,6 @@ export class AdminService {
       message: `Tài khoản đã được ${isActive ? 'mở khoá' : 'khoá'}`,
       ...(warning ? { warning } : {}),
     };
-  }
-
-  async changeUserRole(
-    userId: string,
-    newRole: string,
-    adminId: string,
-    ip: string,
-  ) {
-    if (!['customer', 'admin'].includes(newRole)) {
-      throw new BadRequestException('Role không hợp lệ');
-    }
-    if (userId === adminId) {
-      throw new BadRequestException('Không thể đổi role của chính mình');
-    }
-    await this.userRepo.update(userId, { role: newRole as any });
-    await this.audit.log(
-      'ADMIN_CHANGE_ROLE',
-      adminId,
-      userId,
-      ip,
-      `New role: ${newRole}`,
-    );
-    return { message: 'Đã đổi vai trò thành công' };
-  }
-
-  async deleteUser(userId: string, adminId: string, ip: string) {
-    await this.audit.log(
-      'ADMIN_DELETE_USER_BLOCKED',
-      adminId,
-      userId,
-      ip,
-      'Delete user action is disabled by security policy',
-    );
-    throw new ForbiddenException(
-      'Chính sách hiện tại không cho phép xóa tài khoản người dùng',
-    );
   }
 
   async setAdminSecurityPin(adminId: string, pin: string, ip: string) {
@@ -325,45 +283,6 @@ export class AdminService {
       .getCount();
 
     return { totalUsers, customers, admins, inactive };
-  }
-
-  async openSensitiveUserView(
-    targetUserId: string,
-    adminId: string,
-    ip: string,
-    adminPin: string,
-    reason: string,
-  ) {
-    await this.audit.log(
-      'ADMIN_VIEW_SENSITIVE_BLOCKED',
-      adminId,
-      targetUserId,
-      ip,
-      `reason: ${reason || 'feature disabled'}`,
-    );
-
-    throw new ForbiddenException(
-      'Tạm thời ẩn chức năng admin xem chi tiết người dùng theo chính sách bảo mật',
-    );
-  }
-
-  async closeSensitiveUserView(viewToken: string, adminId: string, ip: string) {
-    const session = this.adminViewSessions.get(viewToken);
-    if (!session) return { message: 'Phiên xem đã hết hạn hoặc đã đóng' };
-
-    if (session.adminId !== adminId) {
-      throw new ForbiddenException('Không có quyền đóng phiên xem này');
-    }
-
-    this.adminViewSessions.delete(viewToken);
-    await this.audit.log(
-      'ADMIN_VIEW_SENSITIVE_CLOSE',
-      adminId,
-      session.targetUserId,
-      ip,
-      `reason: ${session.reason}`,
-    );
-    return { message: 'Đã đóng phiên xem chi tiết' };
   }
 
   private async verifyAdminPin(adminId: string, adminPin: string) {

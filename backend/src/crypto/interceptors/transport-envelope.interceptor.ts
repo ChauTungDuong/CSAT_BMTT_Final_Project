@@ -29,6 +29,7 @@ export class TransportEnvelopeInterceptor implements NestInterceptor {
 
     const path = this.normalizePath(req.originalUrl || req.url || '');
     const strictEnabled = this.isStrictTransportMode();
+    const sensitivePath = this.isSensitivePath(path);
 
     if (path === '/api/transport/public-key') {
       return next.handle();
@@ -39,7 +40,7 @@ export class TransportEnvelopeInterceptor implements NestInterceptor {
     }
 
     if (!this.isEnvelopeMode(req)) {
-      if (strictEnabled && !this.isStrictBypassPath(path)) {
+      if (strictEnabled) {
         throw new BadRequestException(
           'Yêu cầu bắt buộc dùng envelope mã hóa ở chế độ strict transport',
         );
@@ -81,6 +82,9 @@ export class TransportEnvelopeInterceptor implements NestInterceptor {
     }
 
     res.setHeader('x-app-envelope', '1');
+    if (sensitivePath) {
+      res.setHeader('x-app-sensitive', '1');
+    }
 
     return next.handle().pipe(
       map((data) => {
@@ -209,8 +213,14 @@ export class TransportEnvelopeInterceptor implements NestInterceptor {
     return this.rsaTransport.isEnabled();
   }
 
-  private isStrictBypassPath(path: string): boolean {
-    // Keep monitor APIs accessible for operational visibility in dev mode.
-    return path.startsWith('/api/crypto');
+  private isSensitivePath(path: string): boolean {
+    return (
+      path === '/api/auth/me' ||
+      path === '/api/customers/me' ||
+      path === '/api/customers/me/verify-pin' ||
+      path === '/api/customers/me/pin/change/request-otp' ||
+      path === '/api/customers/me/pin/change/confirm' ||
+      path === '/api/customers/me/setup-pin'
+    );
   }
 }

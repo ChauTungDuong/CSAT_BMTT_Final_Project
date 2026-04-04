@@ -9,7 +9,7 @@ CREATE TABLE USERS (
     USERNAME        VARCHAR2(100) NOT NULL UNIQUE,
     PASSWORD_HASH   VARCHAR2(255) NOT NULL,
     FULL_NAME       VARCHAR2(200),
-    EMAIL           VARCHAR2(200),
+    EMAIL           BLOB,
     ROLE            VARCHAR2(20)  DEFAULT 'customer'
                     CHECK (ROLE IN ('customer', 'admin')),
     IS_ACTIVE       NUMBER(1)     DEFAULT 1,
@@ -22,7 +22,7 @@ CREATE TABLE CUSTOMERS (
     ID              VARCHAR2(36)  DEFAULT SYS_GUID() PRIMARY KEY,
     USER_ID         VARCHAR2(36)  NOT NULL UNIQUE,
     FULL_NAME       VARCHAR2(200) NOT NULL,
-    EMAIL           VARCHAR2(200) NOT NULL,
+    EMAIL           BLOB NOT NULL,
     PHONE           BLOB,
     CCCD            BLOB,
     DATE_OF_BIRTH   BLOB,

@@ -17,11 +17,8 @@ export class Customer {
   @Column({ name: 'FULL_NAME', length: 200 })
   fullName: string;
 
-  @Column({ name: 'EMAIL', length: 200 })
-  email: string;
-
-  @Column({ name: 'EMAIL_ENCRYPTED', type: 'blob', nullable: true })
-  emailEncrypted: Buffer | null;
+  @Column({ name: 'EMAIL', type: 'blob' })
+  email: Buffer;
 
   @Column({ name: 'EMAIL_HASH', length: 64, nullable: true })
   emailHash: string | null;

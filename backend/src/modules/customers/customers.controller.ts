@@ -4,12 +4,10 @@ import {
   Post,
   Put,
   Body,
-  Param,
   Req,
   UseGuards,
   HttpCode,
   HttpStatus,
-  ForbiddenException,
   NotFoundException,
   UnauthorizedException,
   Query,
@@ -46,7 +44,6 @@ export class CustomersController {
     return this.service.getProfile(
       customerId,
       req.user.sub,
-      Role.CUSTOMER,
       req.ip,
       viewToken,
     );
@@ -87,15 +84,17 @@ export class CustomersController {
     if (!result.verified) {
       if (result.locked) {
         throw new UnauthorizedException({
-          message: 'Tài khoản đã bị khóa vì nhập sai PIN quá 5 lần',
+          message: result.message,
           locked: true,
-          remainingAttempts: 0,
+          remainingAttempts: result.remainingAttempts,
+          lockReason: result.lockReason,
         });
       }
       throw new UnauthorizedException({
         message: result.message,
         locked: false,
         remainingAttempts: result.remainingAttempts,
+        lockReason: result.lockReason,
       });
     }
 
@@ -162,15 +161,6 @@ export class CustomersController {
       body.newPin,
       body.confirmPin,
       req.ip,
-    );
-  }
-
-  // Admin xem chi tiết một customer
-  @Get(':id')
-  @Roles(Role.ADMIN)
-  async getCustomerById(@Param('id') id: string, @Req() req: any) {
-    throw new ForbiddenException(
-      'Tạm thời ẩn chức năng admin xem chi tiết người dùng theo chính sách bảo mật',
     );
   }
 }

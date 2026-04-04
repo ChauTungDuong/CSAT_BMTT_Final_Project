@@ -65,8 +65,7 @@ export class CustomersService {
       id,
       userId,
       fullName: dto.fullName,
-      email: this.emailCrypto.normalizeEmail(dto.email),
-      emailEncrypted: this.emailCrypto.encryptEmail(dto.email),
+      email: this.emailCrypto.encryptEmail(dto.email),
       emailHash: this.emailCrypto.hashEmail(dto.email),
       phone: this.aes.serialize(phone),
       cccd: this.aes.serialize(cccd),
@@ -96,7 +95,6 @@ export class CustomersService {
   async getProfile(
     customerId: string,
     viewerId: string,
-    viewerRole: Role,
     ip: string,
     viewToken?: string,
   ) {
@@ -106,33 +104,25 @@ export class CustomersService {
     if (!customer) throw new NotFoundException('Không tìm thấy khách hàng');
 
     const isOwner = customer.userId === viewerId;
-    if (!isOwner && viewerRole === Role.ADMIN) {
-      throw new ForbiddenException(
-        'Tạm thời ẩn chức năng admin xem chi tiết người dùng theo chính sách bảo mật',
-      );
+    if (!isOwner) {
+      throw new ForbiddenException('Không có quyền truy cập hồ sơ này');
     }
 
-    const canDecrypt = isOwner;
+    const [phone, cccd, dob, address] = await Promise.all([
+      this.aes.decrypt(this.aes.deserialize(customer.phone as Buffer)),
+      this.aes.decrypt(this.aes.deserialize(customer.cccd as Buffer)),
+      this.aes.decrypt(this.aes.deserialize(customer.dateOfBirth as Buffer)),
+      this.aes.decrypt(this.aes.deserialize(customer.address as Buffer)),
+    ]);
 
-    const [phone, cccd, dob, address] = canDecrypt
-      ? await Promise.all([
-          this.aes.decrypt(this.aes.deserialize(customer.phone as Buffer)),
-          this.aes.decrypt(this.aes.deserialize(customer.cccd as Buffer)),
-          this.aes.decrypt(
-            this.aes.deserialize(customer.dateOfBirth as Buffer),
-          ),
-          this.aes.decrypt(this.aes.deserialize(customer.address as Buffer)),
-        ])
-      : [null, null, null, null];
-
-    const roleToUse = isOwner ? Role.CUSTOMER : viewerRole;
+    const roleToUse = Role.CUSTOMER;
     const pinMode = isOwner && this.isPinViewSessionValid(viewerId, viewToken);
 
     return {
       id: customer.id,
       fullName: customer.fullName,
       email: this.masking.mask(
-        this.emailCrypto.readEmail(customer.emailEncrypted, customer.email),
+        this.emailCrypto.readEmail(customer.email),
         'email',
         roleToUse,
         pinMode,
@@ -196,25 +186,15 @@ export class CustomersService {
       const existingEmail = await this.userRepo.findOne({
         where: { emailHash },
       });
-      const existingLegacyEmail = await this.userRepo
-        .createQueryBuilder('u')
-        .where('LOWER(u.email) = :email', { email: normalizedEmail })
-        .andWhere('u.id != :id', { id: userId })
-        .getOne();
       if (existingEmail) {
         if (existingEmail.id !== userId) {
           throw new BadRequestException('Email đã tồn tại');
         }
       }
-      if (existingLegacyEmail) {
-        throw new BadRequestException('Email đã tồn tại');
-      }
 
-      customer.email = normalizedEmail;
-      customer.emailEncrypted = this.emailCrypto.encryptEmail(normalizedEmail);
+      customer.email = this.emailCrypto.encryptEmail(normalizedEmail);
       customer.emailHash = emailHash;
-      user.email = normalizedEmail;
-      user.emailEncrypted = this.emailCrypto.encryptEmail(normalizedEmail);
+      user.email = this.emailCrypto.encryptEmail(normalizedEmail);
       user.emailHash = emailHash;
     }
 
@@ -251,6 +231,7 @@ export class CustomersService {
     locked: boolean;
     remainingAttempts: number;
     message: string;
+    lockReason?: 'NONE' | 'PIN_ATTEMPT' | 'ADMIN' | 'ACCOUNT_LOCKED';
   }> {
     const customer = await this.customerRepo.findOne({
       where: { id: customerId, userId },
@@ -261,22 +242,41 @@ export class CustomersService {
         locked: false,
         remainingAttempts: 0,
         message: 'PIN chưa được thiết lập',
+        lockReason: 'NONE',
       };
     }
 
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user || !user.isActive || customer.pinLocked) {
+      const lockReason = !user
+        ? 'ACCOUNT_LOCKED'
+        : !user.isActive
+          ? user.lockReason === 'ADMIN'
+            ? 'ADMIN'
+            : user.lockReason === 'PIN_ATTEMPT' || customer.pinLocked
+              ? 'PIN_ATTEMPT'
+              : 'ACCOUNT_LOCKED'
+          : 'PIN_ATTEMPT';
+
+      const lockMessage =
+        lockReason === 'ADMIN'
+          ? 'Admin đã khóa tài khoản của bạn. Vui lòng liên hệ quản trị viên.'
+          : lockReason === 'PIN_ATTEMPT'
+            ? 'Tài khoản đã bị khóa do nhập sai PIN quá 5 lần'
+            : 'Tài khoản đang bị khóa';
+
       await this.audit.log(
         'PIN_VERIFY_LOCKED',
         userId,
         customerId,
         ip,
-        'PIN verify blocked because account is locked',
+        `PIN verify blocked because account is locked (${lockReason})`,
       );
       throw new ForbiddenException({
-        message: 'Tài khoản đã bị khóa vì nhập sai PIN quá 5 lần',
+        message: lockMessage,
         locked: true,
         remainingAttempts: 0,
+        lockReason,
       });
     }
 
@@ -315,6 +315,7 @@ export class CustomersService {
         verified: false,
         locked: customer.pinFailedAttempts >= 5,
         remainingAttempts,
+        lockReason: customer.pinFailedAttempts >= 5 ? 'PIN_ATTEMPT' : 'NONE',
         message:
           customer.pinFailedAttempts >= 5
             ? 'Tài khoản đã bị khóa vì nhập sai PIN quá 5 lần'
@@ -339,6 +340,7 @@ export class CustomersService {
       locked: false,
       remainingAttempts: 5,
       message: 'PIN verified',
+      lockReason: 'NONE',
     };
   }
 
@@ -412,7 +414,10 @@ export class CustomersService {
     await this.customerRepo.save(customer);
 
     // Gửi email
-    await this.mailService.sendPinSetupEmail(customer.email);
+    const setupRecipient = this.emailCrypto.readEmail(customer.email);
+    if (setupRecipient) {
+      await this.mailService.sendPinSetupEmail(setupRecipient);
+    }
 
     await this.audit.log(
       'PIN_SETUP_SUCCESS',
@@ -498,7 +503,9 @@ export class CustomersService {
       throw new BadRequestException('PIN hiện tại không đúng');
     }
 
-    const recipient = (customer.email || user.email || '').trim();
+    const recipient =
+      this.emailCrypto.readEmail(customer.email) ||
+      this.emailCrypto.readEmail(user.email);
     if (!recipient) {
       throw new BadRequestException('Không tìm thấy email để gửi OTP');
     }

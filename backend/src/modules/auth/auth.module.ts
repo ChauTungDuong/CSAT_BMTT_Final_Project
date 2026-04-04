@@ -35,6 +35,6 @@ import { SessionRegistryService } from './services/session-registry.service';
   ],
   providers: [AuthService, JwtStrategy, MailService, SessionRegistryService],
   controllers: [AuthController],
-  exports: [AuthService],
+  exports: [AuthService, SessionRegistryService],
 })
 export class AuthModule {}

@@ -15,6 +15,7 @@ import { Role } from '../../common/types/role.enum';
 import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
 import { EmailCryptoService } from '../../crypto/services/email-crypto.service';
 import { MailService } from '../customers/mail.service';
+import { SessionRegistryService } from '../auth/services/session-registry.service';
 
 @Injectable()
 export class AdminService {
@@ -26,6 +27,7 @@ export class AdminService {
     private pbkdf2: Pbkdf2Service,
     private emailCrypto: EmailCryptoService,
     private mailService: MailService,
+    private sessionRegistry: SessionRegistryService,
   ) {}
 
   async getUsers(page: number, limit: number, q?: string) {
@@ -114,13 +116,17 @@ export class AdminService {
       );
     }
 
-    await this.userRepo.update(userId, {
-      isActive: isActive ? 1 : 0,
-      lockReason: isActive ? 'NONE' : 'ADMIN',
-    });
-
-    // Nếu mở khóa thì reset bộ đếm PIN sai
     if (isActive) {
+      // Mở khóa phải reset đồng bộ cả cờ khóa và bộ đếm để không bị tái khóa giả.
+      await this.userRepo.update(userId, {
+        isActive: 1,
+        passwordFailedAttempts: 0,
+        forgotOtpFailedAttempts: 0,
+        passwordLocked: 0,
+        passwordLockedAt: null,
+        lockReason: 'NONE',
+      });
+
       const customer = await this.customerRepo.findOne({ where: { userId } });
       if (customer) {
         customer.pinFailedAttempts = 0;
@@ -128,13 +134,14 @@ export class AdminService {
         customer.pinLockedAt = null;
         await this.customerRepo.save(customer);
       }
+    } else {
+      await this.userRepo.update(userId, {
+        isActive: 0,
+        lockReason: 'ADMIN',
+      });
 
-      target.passwordFailedAttempts = 0;
-      target.forgotOtpFailedAttempts = 0;
-      target.passwordLocked = 0;
-      target.passwordLockedAt = null;
-      target.lockReason = 'NONE';
-      await this.userRepo.save(target);
+      // Revoke session ngay để user bị đăng xuất ở request kế tiếp.
+      this.sessionRegistry.invalidateSession(userId);
     }
 
     await this.audit.log(

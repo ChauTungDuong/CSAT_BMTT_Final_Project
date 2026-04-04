@@ -231,6 +231,7 @@ export class CustomersService {
     locked: boolean;
     remainingAttempts: number;
     message: string;
+    lockReason?: 'NONE' | 'PIN_ATTEMPT' | 'ADMIN' | 'ACCOUNT_LOCKED';
   }> {
     const customer = await this.customerRepo.findOne({
       where: { id: customerId, userId },
@@ -241,22 +242,41 @@ export class CustomersService {
         locked: false,
         remainingAttempts: 0,
         message: 'PIN chưa được thiết lập',
+        lockReason: 'NONE',
       };
     }
 
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user || !user.isActive || customer.pinLocked) {
+      const lockReason = !user
+        ? 'ACCOUNT_LOCKED'
+        : !user.isActive
+          ? user.lockReason === 'ADMIN'
+            ? 'ADMIN'
+            : user.lockReason === 'PIN_ATTEMPT' || customer.pinLocked
+              ? 'PIN_ATTEMPT'
+              : 'ACCOUNT_LOCKED'
+          : 'PIN_ATTEMPT';
+
+      const lockMessage =
+        lockReason === 'ADMIN'
+          ? 'Admin đã khóa tài khoản của bạn. Vui lòng liên hệ quản trị viên.'
+          : lockReason === 'PIN_ATTEMPT'
+            ? 'Tài khoản đã bị khóa do nhập sai PIN quá 5 lần'
+            : 'Tài khoản đang bị khóa';
+
       await this.audit.log(
         'PIN_VERIFY_LOCKED',
         userId,
         customerId,
         ip,
-        'PIN verify blocked because account is locked',
+        `PIN verify blocked because account is locked (${lockReason})`,
       );
       throw new ForbiddenException({
-        message: 'Tài khoản đã bị khóa vì nhập sai PIN quá 5 lần',
+        message: lockMessage,
         locked: true,
         remainingAttempts: 0,
+        lockReason,
       });
     }
 
@@ -295,6 +315,7 @@ export class CustomersService {
         verified: false,
         locked: customer.pinFailedAttempts >= 5,
         remainingAttempts,
+        lockReason: customer.pinFailedAttempts >= 5 ? 'PIN_ATTEMPT' : 'NONE',
         message:
           customer.pinFailedAttempts >= 5
             ? 'Tài khoản đã bị khóa vì nhập sai PIN quá 5 lần'
@@ -319,6 +340,7 @@ export class CustomersService {
       locked: false,
       remainingAttempts: 5,
       message: 'PIN verified',
+      lockReason: 'NONE',
     };
   }
 

@@ -84,15 +84,17 @@ export class CustomersController {
     if (!result.verified) {
       if (result.locked) {
         throw new UnauthorizedException({
-          message: 'Tài khoản đã bị khóa vì nhập sai PIN quá 5 lần',
+          message: result.message,
           locked: true,
-          remainingAttempts: 0,
+          remainingAttempts: result.remainingAttempts,
+          lockReason: result.lockReason,
         });
       }
       throw new UnauthorizedException({
         message: result.message,
         locked: false,
         remainingAttempts: result.remainingAttempts,
+        lockReason: result.lockReason,
       });
     }
 

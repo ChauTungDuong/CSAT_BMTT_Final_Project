@@ -62,16 +62,28 @@ export function PinModal({
         typeof payload?.message === "string"
           ? payload.message
           : "PIN không đúng. Vui lòng thử lại.";
+      const lockReason =
+        typeof payload?.lockReason === "string" ? payload.lockReason : "";
       const remaining =
         typeof payload?.remainingAttempts === "number"
           ? payload.remainingAttempts
           : undefined;
-      const isLocked = !!payload?.locked || /bị khóa/i.test(message);
+      const isLocked = !!payload?.locked;
 
       if (isLocked) {
         setLocked(true);
-        setError("Tài khoản đã bị khóa vì nhập sai PIN quá 5 lần.");
-        setHelper("Vui lòng liên hệ quản trị viên để được mở khóa tài khoản.");
+        if (lockReason === "ADMIN") {
+          setError("Admin đã khóa tài khoản của bạn.");
+          setHelper("Vui lòng liên hệ quản trị viên để được hỗ trợ mở khóa.");
+        } else if (lockReason === "PIN_ATTEMPT") {
+          setError("Tài khoản đã bị khóa vì nhập sai PIN quá 5 lần.");
+          setHelper(
+            "Vui lòng liên hệ quản trị viên để được mở khóa tài khoản.",
+          );
+        } else {
+          setError(message);
+          setHelper("Tài khoản đang bị khóa. Vui lòng liên hệ quản trị viên.");
+        }
       } else {
         setError(message);
         if (typeof remaining === "number") {

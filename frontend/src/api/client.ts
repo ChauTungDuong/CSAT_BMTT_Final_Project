@@ -105,6 +105,12 @@ api.interceptors.response.use(
     }
 
     const message = (error.response?.data as any)?.message;
+    if (error.response?.status === 401 && message === "ADMIN_LOCKED") {
+      sessionStorage.removeItem("auth");
+      window.location.href = "/login?reason=admin-locked";
+      return Promise.reject(error);
+    }
+
     if (error.response?.status === 401 && message === "SESSION_REVOKED") {
       sessionStorage.removeItem("auth");
       window.location.href = "/login?reason=session-revoked";

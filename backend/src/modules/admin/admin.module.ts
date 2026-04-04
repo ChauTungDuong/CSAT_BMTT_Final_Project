@@ -8,6 +8,7 @@ import { AuditModule } from '../../audit/audit.module';
 import { MaskingModule } from '../../masking/masking.module';
 import { CryptoModule } from '../../crypto/crypto.module';
 import { MailService } from '../customers/mail.service';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { MailService } from '../customers/mail.service';
     AuditModule,
     MaskingModule,
     CryptoModule,
+    AuthModule,
   ],
   providers: [AdminService, MailService],
   controllers: [AdminController],

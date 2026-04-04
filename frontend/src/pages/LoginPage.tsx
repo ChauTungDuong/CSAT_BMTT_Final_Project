@@ -1,11 +1,12 @@
-import { useState, FormEvent } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useState, FormEvent, useEffect } from "react";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import api from "../api/client";
 
 export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -20,6 +21,18 @@ export default function LoginPage() {
   const [forgotError, setForgotError] = useState("");
   const [forgotMessage, setForgotMessage] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const reason = params.get("reason");
+    if (reason === "admin-locked") {
+      setError("Admin đã khóa tài khoản của bạn.");
+      return;
+    }
+    if (reason === "session-revoked") {
+      setError("Phiên đăng nhập đã bị thu hồi. Vui lòng đăng nhập lại.");
+    }
+  }, [location.search]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

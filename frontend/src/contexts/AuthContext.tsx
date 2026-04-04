@@ -16,7 +16,7 @@ interface AuthUser {
 interface AuthContextType {
   user: AuthUser | null;
   login: (username: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   clearForcePasswordChange: () => void;
   isLoading: boolean;
 }
@@ -49,11 +49,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     sessionStorage.setItem("auth", JSON.stringify(data));
   };
 
-  const logout = () => {
-    setUser(null);
-    delete api.defaults.headers.common["Authorization"];
-    sessionStorage.removeItem("auth");
-    window.location.href = "/login";
+  const logout = async () => {
+    try {
+      await api.post("/auth/logout");
+    } catch {
+      // Ignore backend errors and continue local cleanup.
+    } finally {
+      setUser(null);
+      delete api.defaults.headers.common["Authorization"];
+      sessionStorage.removeItem("auth");
+      window.location.href = "/login";
+    }
   };
 
   const clearForcePasswordChange = () => {

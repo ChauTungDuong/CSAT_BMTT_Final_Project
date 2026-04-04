@@ -165,6 +165,16 @@ function hashAccountNumber(accountNumber) {
   ).toString('hex');
 }
 
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function hashEmail(email) {
+  return hmacSha256(masterKey, Buffer.from(normalizeEmail(email), 'utf8')).toString(
+    'hex',
+  );
+}
+
 const admins = [
   {
     id: 'USR-ADMIN-001',
@@ -231,6 +241,10 @@ const customers = [
 ];
 
 async function upsertUser(conn, payload) {
+  const normalizedEmail = normalizeEmail(payload.email);
+  const emailEncrypted = encryptCellWithKey(masterKey, normalizedEmail);
+  const emailHash = hashEmail(normalizedEmail);
+
   const existing = await conn.execute(`SELECT ID FROM USERS WHERE ID = :id`, {
     id: payload.id,
   });
@@ -242,30 +256,45 @@ async function upsertUser(conn, payload) {
            PASSWORD_HASH = :passwordHash,
            FULL_NAME = :fullName,
            EMAIL = :email,
+           EMAIL_ENCRYPTED = :emailEncrypted,
+           EMAIL_HASH = :emailHash,
            ROLE = :role,
            IS_ACTIVE = 1,
            ADMIN_PIN_HASH = :adminPinHash,
            FORCE_PASSWORD_CHANGE = 0,
            UPDATED_AT = SYSTIMESTAMP
        WHERE ID = :id`,
-      payload,
+      {
+        ...payload,
+        email: normalizedEmail,
+        emailEncrypted: { val: emailEncrypted, type: oracledb.BUFFER },
+        emailHash,
+      },
     );
     return 'updated';
   }
 
   await conn.execute(
     `INSERT INTO USERS (
-       ID, USERNAME, PASSWORD_HASH, FULL_NAME, EMAIL, ROLE, IS_ACTIVE, ADMIN_PIN_HASH, FORCE_PASSWORD_CHANGE
+       ID, USERNAME, PASSWORD_HASH, FULL_NAME, EMAIL, EMAIL_ENCRYPTED, EMAIL_HASH, ROLE, IS_ACTIVE, ADMIN_PIN_HASH, FORCE_PASSWORD_CHANGE
      ) VALUES (
-       :id, :username, :passwordHash, :fullName, :email, :role, 1, :adminPinHash, 0
+       :id, :username, :passwordHash, :fullName, :email, :emailEncrypted, :emailHash, :role, 1, :adminPinHash, 0
      )`,
-    payload,
+    {
+      ...payload,
+      email: normalizedEmail,
+      emailEncrypted: { val: emailEncrypted, type: oracledb.BUFFER },
+      emailHash,
+    },
   );
   return 'inserted';
 }
 
 async function upsertCustomer(conn, c, userDek) {
   const pinHash = hashSecret(c.pin, 'pin');
+  const normalizedEmail = normalizeEmail(c.email);
+  const emailEncrypted = encryptCellWithKey(masterKey, normalizedEmail);
+  const emailHash = hashEmail(normalizedEmail);
   const encPhone = encryptCellWithKey(userDek, c.phone);
   const encCccd = encryptCellWithKey(userDek, c.cccd);
   const encDob = encryptCellWithKey(userDek, c.dob);
@@ -283,6 +312,8 @@ async function upsertCustomer(conn, c, userDek) {
        SET USER_ID = :userId,
            FULL_NAME = :fullName,
            EMAIL = :email,
+           EMAIL_ENCRYPTED = :emailEncrypted,
+           EMAIL_HASH = :emailHash,
            PHONE = :phone,
            CCCD = :cccd,
            DATE_OF_BIRTH = :dob,
@@ -297,7 +328,9 @@ async function upsertCustomer(conn, c, userDek) {
         id: customerId,
         userId: c.userId,
         fullName: c.fullName,
-        email: c.email,
+        email: normalizedEmail,
+        emailEncrypted: { val: emailEncrypted, type: oracledb.BUFFER },
+        emailHash,
         phone: { val: encPhone, type: oracledb.BUFFER },
         cccd: { val: encCccd, type: oracledb.BUFFER },
         dob: { val: encDob, type: oracledb.BUFFER },
@@ -310,17 +343,19 @@ async function upsertCustomer(conn, c, userDek) {
 
   await conn.execute(
     `INSERT INTO CUSTOMERS (
-       ID, USER_ID, FULL_NAME, EMAIL, PHONE, CCCD, DATE_OF_BIRTH, ADDRESS,
+       ID, USER_ID, FULL_NAME, EMAIL, EMAIL_ENCRYPTED, EMAIL_HASH, PHONE, CCCD, DATE_OF_BIRTH, ADDRESS,
        PIN_HASH, PIN_FAILED_ATTEMPTS, PIN_LOCKED, PIN_LOCKED_AT
      ) VALUES (
-       :id, :userId, :fullName, :email, :phone, :cccd, :dob, :address,
+       :id, :userId, :fullName, :email, :emailEncrypted, :emailHash, :phone, :cccd, :dob, :address,
        :pinHash, 0, 0, NULL
      )`,
     {
       id: c.customerId,
       userId: c.userId,
       fullName: c.fullName,
-      email: c.email,
+      email: normalizedEmail,
+      emailEncrypted: { val: emailEncrypted, type: oracledb.BUFFER },
+      emailHash,
       phone: { val: encPhone, type: oracledb.BUFFER },
       cccd: { val: encCccd, type: oracledb.BUFFER },
       dob: { val: encDob, type: oracledb.BUFFER },

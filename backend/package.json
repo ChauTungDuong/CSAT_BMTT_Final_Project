@@ -27,6 +27,8 @@
     "db:migrate:docker": "node scripts/reset-migrate-seed.js --mode=local --migrate-only",
     "db:migrate:remove-cell-hmac": "node scripts/migrate-remove-cell-hmac.js --mode=cloud",
     "db:migrate:remove-cell-hmac:local": "node scripts/migrate-remove-cell-hmac.js --mode=local",
+    "db:backfill:emails": "node scripts/backfill-email-security.js --mode=cloud",
+    "db:backfill:emails:local": "node scripts/backfill-email-security.js --mode=local",
     "db:fix-passwords": "node scripts/fix-passwords.js --mode=cloud",
     "db:fix-passwords:local": "node scripts/fix-passwords.js --mode=local"
   },

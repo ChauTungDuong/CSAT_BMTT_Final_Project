@@ -23,7 +23,9 @@ import { decryptGCM, encryptGCM } from '../../crypto/aes-gcm';
 import { UserDekRuntimeService } from '../../crypto/services/user-dek-runtime.service';
 import { UserKeyDerivationService } from '../../crypto/services/user-key-derivation.service';
 import { UserKeyMetadataService } from '../../crypto/services/user-key-metadata.service';
+import { EmailCryptoService } from '../../crypto/services/email-crypto.service';
 import { MailService } from '../customers/mail.service';
+import { SessionRegistryService } from './services/session-registry.service';
 
 @Injectable()
 export class AuthService {
@@ -52,6 +54,8 @@ export class AuthService {
     private userDekRuntime: UserDekRuntimeService,
     private userKeyDerivation: UserKeyDerivationService,
     private userKeyMetadata: UserKeyMetadataService,
+    private emailCrypto: EmailCryptoService,
+    private sessionRegistry: SessionRegistryService,
     private mailService: MailService,
   ) {
     const recoveryKeyHex = (this.config.get<string>('DEK_RECOVERY_KEY') || '')
@@ -62,9 +66,22 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto, ip: string) {
-    const exists = await this.userRepo.findOne({
-      where: [{ username: dto.username }, { email: dto.email }],
+    const normalizedEmail = this.emailCrypto.normalizeEmail(dto.email);
+    const emailHash = this.emailCrypto.hashEmail(normalizedEmail);
+
+    const existsByUsername = await this.userRepo.findOne({
+      where: { username: dto.username },
     });
+    const existsByEmail = await this.userRepo.findOne({
+      where: { emailHash },
+    });
+
+    const existsByLegacyEmail = await this.userRepo
+      .createQueryBuilder('u')
+      .where('LOWER(u.email) = :email', { email: normalizedEmail })
+      .getOne();
+
+    const exists = existsByUsername || existsByEmail || existsByLegacyEmail;
     if (exists)
       throw new ConflictException('Tên đăng nhập hoặc email đã tồn tại');
 
@@ -102,8 +119,15 @@ export class AuthService {
       username: dto.username,
       passwordHash,
       role: 'customer',
-      email: dto.email,
+      email: normalizedEmail,
+      emailEncrypted: this.emailCrypto.encryptEmail(normalizedEmail),
+      emailHash,
       fullName: dto.fullName,
+      passwordFailedAttempts: 0,
+      forgotOtpFailedAttempts: 0,
+      passwordLocked: 0,
+      passwordLockedAt: null,
+      lockReason: 'NONE',
     });
     await this.userRepo.save(user);
 
@@ -119,7 +143,9 @@ export class AuthService {
       id: customerId,
       userId: userId,
       fullName: dto.fullName,
-      email: dto.email,
+      email: normalizedEmail,
+      emailEncrypted: this.emailCrypto.encryptEmail(normalizedEmail),
+      emailHash,
       phone: this.aesService.serialize(encPhone),
       cccd: this.aesService.serialize(encCccd),
       dateOfBirth: this.aesService.serialize(encDob),
@@ -195,6 +221,12 @@ export class AuthService {
         if (customer?.pinLocked) {
           lockMessage =
             'Tài khoản đã bị khóa do nhập sai mã PIN quá 5 lần. Vui lòng liên hệ quản trị viên để mở khóa';
+        } else if (user.passwordLocked) {
+          lockMessage =
+            'Tài khoản đã bị khóa do nhập sai mật khẩu quá 5 lần. Vui lòng liên hệ quản trị viên để mở khóa';
+        } else if (user.lockReason === 'FORGOT_OTP_ATTEMPT') {
+          lockMessage =
+            'Tài khoản đã bị khóa do xác thực OTP đặt lại mật khẩu thất bại quá nhiều lần. Vui lòng liên hệ quản trị viên để mở khóa';
         }
       }
 
@@ -209,6 +241,24 @@ export class AuthService {
     }
 
     if (!user || !isValid) {
+      if (user) {
+        user.passwordFailedAttempts = (user.passwordFailedAttempts || 0) + 1;
+        if (user.passwordFailedAttempts >= 5) {
+          user.passwordLocked = 1;
+          user.passwordLockedAt = new Date();
+          user.isActive = 0;
+          user.lockReason = 'WRONG_PASSWORD';
+          await this.auditService.log(
+            'PASSWORD_LOCKED',
+            user.id,
+            user.id,
+            ip,
+            'Account locked after 5 wrong password attempts',
+          );
+        }
+        await this.userRepo.save(user);
+      }
+
       await this.auditService.log(
         'LOGIN_FAIL',
         user?.id || null,
@@ -219,14 +269,22 @@ export class AuthService {
       throw new UnauthorizedException('Tên đăng nhập hoặc mật khẩu không đúng');
     }
 
+    if (user.passwordFailedAttempts > 0) {
+      user.passwordFailedAttempts = 0;
+      await this.userRepo.save(user);
+    }
+
     if (user.role === 'customer') {
       await this.ensureUserDekRuntime(user.id, dto.password);
     }
+
+    const sid = this.sessionRegistry.issueSession(user.id);
 
     const token = this.jwtService.sign({
       sub: user.id,
       username: user.username,
       role: user.role,
+      sid,
     });
 
     await this.auditService.log(
@@ -246,12 +304,13 @@ export class AuthService {
   async getProfile(userId: string) {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+    const resolvedEmail = this.resolveUserEmail(user);
     return {
       id: user.id,
       username: user.username,
       role: user.role,
       fullName: user.fullName,
-      email: user.email,
+      email: resolvedEmail,
       forcePasswordChange: !!user.forcePasswordChange,
       hasAdminPin: user.role === 'admin' ? !!user.adminPinHash : undefined,
     };
@@ -276,23 +335,36 @@ export class AuthService {
     }
 
     if (data.email !== undefined) {
-      const normalizedEmail = data.email.trim().toLowerCase();
+      const normalizedEmail = this.emailCrypto.normalizeEmail(data.email);
       if (!normalizedEmail) {
         throw new BadRequestException('Email không được để trống');
       }
 
-      const existingEmail = await this.userRepo
+      const emailHash = this.emailCrypto.hashEmail(normalizedEmail);
+      const existingEmail = await this.userRepo.findOne({
+        where: { emailHash },
+      });
+      const existingLegacyEmail = await this.userRepo
         .createQueryBuilder('u')
         .where('LOWER(u.email) = :email', { email: normalizedEmail })
         .andWhere('u.id != :id', { id: userId })
         .getOne();
 
-      if (existingEmail) {
+      if (
+        (existingEmail && existingEmail.id !== userId) ||
+        !!existingLegacyEmail
+      ) {
         throw new ConflictException('Email đã tồn tại');
       }
 
       user.email = normalizedEmail;
+      user.emailEncrypted = this.emailCrypto.encryptEmail(normalizedEmail);
+      user.emailHash = emailHash;
       if (customer) customer.email = normalizedEmail;
+      if (customer) {
+        customer.emailEncrypted = this.emailCrypto.encryptEmail(normalizedEmail);
+        customer.emailHash = emailHash;
+      }
     }
 
     await this.userRepo.save(user);
@@ -308,7 +380,7 @@ export class AuthService {
       'Nếu thông tin hợp lệ, OTP đặt lại mật khẩu đã được gửi tới email đã đăng ký.';
 
     const normalizedUsername = (username || '').trim();
-    const normalizedEmail = (email || '').trim().toLowerCase();
+    const normalizedEmail = this.emailCrypto.normalizeEmail(email || '');
 
     if (!normalizedUsername || !normalizedEmail) {
       throw new BadRequestException('Vui lòng nhập tên đăng nhập và email');
@@ -318,7 +390,7 @@ export class AuthService {
       where: { username: normalizedUsername },
     });
 
-    if (!user || (user.email || '').trim().toLowerCase() !== normalizedEmail) {
+    if (!user || this.resolveUserEmail(user) !== normalizedEmail) {
       await this.auditService.log(
         'FORGOT_PASSWORD_REQUEST',
         user?.id || null,
@@ -369,7 +441,7 @@ export class AuthService {
     ip: string,
   ) {
     const normalizedUsername = (username || '').trim();
-    const normalizedEmail = (email || '').trim().toLowerCase();
+    const normalizedEmail = this.emailCrypto.normalizeEmail(email || '');
 
     if (!normalizedUsername || !normalizedEmail) {
       throw new BadRequestException('Thông tin xác thực không hợp lệ');
@@ -390,7 +462,7 @@ export class AuthService {
     const user = await this.userRepo.findOne({
       where: { username: normalizedUsername },
     });
-    if (!user || (user.email || '').trim().toLowerCase() !== normalizedEmail) {
+    if (!user || this.resolveUserEmail(user) !== normalizedEmail) {
       throw new BadRequestException('Thông tin xác thực không hợp lệ');
     }
 
@@ -405,6 +477,15 @@ export class AuthService {
     }
 
     if (!this.pbkdf2.verifySecret(otp, session.otpHash)) {
+      user.forgotOtpFailedAttempts = (user.forgotOtpFailedAttempts || 0) + 1;
+      if (user.forgotOtpFailedAttempts >= 5) {
+        user.isActive = 0;
+        user.lockReason = 'FORGOT_OTP_ATTEMPT';
+        user.passwordLocked = 1;
+        user.passwordLockedAt = new Date();
+      }
+      await this.userRepo.save(user);
+
       session.failedAttempts += 1;
       if (session.failedAttempts >= 5) {
         this.forgotPasswordOtps.delete(user.id);
@@ -423,6 +504,11 @@ export class AuthService {
       throw new BadRequestException('OTP không đúng');
     }
 
+    if (user.forgotOtpFailedAttempts > 0) {
+      user.forgotOtpFailedAttempts = 0;
+      await this.userRepo.save(user);
+    }
+
     if (this.pbkdf2.verifySecret(newPassword, user.passwordHash)) {
       throw new BadRequestException('Mật khẩu mới phải khác mật khẩu hiện tại');
     }
@@ -433,6 +519,7 @@ export class AuthService {
     user.forcePasswordChange = 0;
     await this.userRepo.save(user);
 
+    this.sessionRegistry.invalidateSession(user.id);
     this.userDekRuntime.clearUserDek(user.id);
     this.forgotPasswordOtps.delete(user.id);
 
@@ -485,6 +572,7 @@ export class AuthService {
     user.forcePasswordChange = 0;
     await this.userRepo.save(user);
 
+    this.sessionRegistry.invalidateSession(userId);
     this.userDekRuntime.clearUserDek(userId);
 
     await this.auditService.log(
@@ -496,6 +584,16 @@ export class AuthService {
     );
 
     return { message: 'Đổi mật khẩu thành công' };
+  }
+
+  async logout(userId: string, ip: string) {
+    this.sessionRegistry.invalidateSession(userId);
+    await this.auditService.log('LOGOUT', userId, userId, ip, 'User logout');
+    return { message: 'Đăng xuất thành công' };
+  }
+
+  private resolveUserEmail(user: User): string {
+    return this.emailCrypto.readEmail(user.emailEncrypted, user.email);
   }
 
   private async ensureUserDekRuntime(

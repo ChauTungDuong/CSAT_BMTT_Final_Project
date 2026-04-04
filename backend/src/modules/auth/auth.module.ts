@@ -13,6 +13,7 @@ import { Account } from '../accounts/entities/account.entity';
 import { CryptoModule } from '../../crypto/crypto.module';
 import { AuditModule } from '../../audit/audit.module';
 import { MailService } from '../customers/mail.service';
+import { SessionRegistryService } from './services/session-registry.service';
 
 @Module({
   imports: [
@@ -32,7 +33,7 @@ import { MailService } from '../customers/mail.service';
     }),
     AuditModule,
   ],
-  providers: [AuthService, JwtStrategy, MailService],
+  providers: [AuthService, JwtStrategy, MailService, SessionRegistryService],
   controllers: [AuthController],
   exports: [AuthService],
 })

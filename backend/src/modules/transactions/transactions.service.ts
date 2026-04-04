@@ -64,6 +64,7 @@ export class TransactionsService {
         customer.pinLocked = 1;
         customer.pinLockedAt = new Date();
         user.isActive = 0;
+        user.lockReason = 'PIN_ATTEMPT';
         await this.userRepo.save(user);
         await this.audit.log(
           'PIN_LOCKED',

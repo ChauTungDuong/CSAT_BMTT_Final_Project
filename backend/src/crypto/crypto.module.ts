@@ -9,6 +9,7 @@ import { RsaTransportService } from './services/rsa-transport.service';
 import { UserKeyDerivationService } from './services/user-key-derivation.service';
 import { UserDekRuntimeService } from './services/user-dek-runtime.service';
 import { UserKeyMetadataService } from './services/user-key-metadata.service';
+import { EmailCryptoService } from './services/email-crypto.service';
 import { UserKeyMetadata } from '../modules/auth/entities/user-key-metadata.entity';
 import { TransportController } from './transport.controller';
 import { TransportEnvelopeInterceptor } from './interceptors/transport-envelope.interceptor';
@@ -24,6 +25,7 @@ import { TransportEnvelopeInterceptor } from './interceptors/transport-envelope.
     UserKeyDerivationService,
     UserDekRuntimeService,
     UserKeyMetadataService,
+    EmailCryptoService,
     {
       provide: APP_INTERCEPTOR,
       useClass: TransportEnvelopeInterceptor,
@@ -39,6 +41,7 @@ import { TransportEnvelopeInterceptor } from './interceptors/transport-envelope.
     UserKeyDerivationService,
     UserDekRuntimeService,
     UserKeyMetadataService,
+    EmailCryptoService,
   ],
 })
 export class CryptoModule {}

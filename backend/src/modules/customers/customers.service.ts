@@ -17,6 +17,7 @@ import { Role } from '../../common/types/role.enum';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
+import { EmailCryptoService } from '../../crypto/services/email-crypto.service';
 
 @Injectable()
 export class CustomersService {
@@ -42,6 +43,7 @@ export class CustomersService {
     private audit: AuditService,
     private mailService: MailService,
     private pbkdf2: Pbkdf2Service,
+    private emailCrypto: EmailCryptoService,
   ) {}
 
   // ── TẠO PROFILE KHÁCH HÀNG ───────────────────────────────────
@@ -63,7 +65,9 @@ export class CustomersService {
       id,
       userId,
       fullName: dto.fullName,
-      email: dto.email,
+      email: this.emailCrypto.normalizeEmail(dto.email),
+      emailEncrypted: this.emailCrypto.encryptEmail(dto.email),
+      emailHash: this.emailCrypto.hashEmail(dto.email),
       phone: this.aes.serialize(phone),
       cccd: this.aes.serialize(cccd),
       dateOfBirth: this.aes.serialize(dob),
@@ -127,7 +131,12 @@ export class CustomersService {
     return {
       id: customer.id,
       fullName: customer.fullName,
-      email: this.masking.mask(customer.email, 'email', roleToUse, pinMode),
+      email: this.masking.mask(
+        this.emailCrypto.readEmail(customer.emailEncrypted, customer.email),
+        'email',
+        roleToUse,
+        pinMode,
+      ),
       phone: phone
         ? this.masking.mask(phone, 'phone', roleToUse, pinMode)
         : this.masking.mask('', 'phone', roleToUse),
@@ -177,22 +186,36 @@ export class CustomersService {
     }
 
     if (dto.email !== undefined) {
-      const normalizedEmail = dto.email.trim().toLowerCase();
+      const normalizedEmail = this.emailCrypto.normalizeEmail(dto.email);
       if (!normalizedEmail) {
         throw new BadRequestException('Email không được để trống');
       }
 
-      const existingEmail = await this.userRepo
+      const emailHash = this.emailCrypto.hashEmail(normalizedEmail);
+
+      const existingEmail = await this.userRepo.findOne({
+        where: { emailHash },
+      });
+      const existingLegacyEmail = await this.userRepo
         .createQueryBuilder('u')
         .where('LOWER(u.email) = :email', { email: normalizedEmail })
         .andWhere('u.id != :id', { id: userId })
         .getOne();
       if (existingEmail) {
+        if (existingEmail.id !== userId) {
+          throw new BadRequestException('Email đã tồn tại');
+        }
+      }
+      if (existingLegacyEmail) {
         throw new BadRequestException('Email đã tồn tại');
       }
 
       customer.email = normalizedEmail;
+      customer.emailEncrypted = this.emailCrypto.encryptEmail(normalizedEmail);
+      customer.emailHash = emailHash;
       user.email = normalizedEmail;
+      user.emailEncrypted = this.emailCrypto.encryptEmail(normalizedEmail);
+      user.emailHash = emailHash;
     }
 
     if (dto.dateOfBirth !== undefined)
@@ -266,6 +289,7 @@ export class CustomersService {
         customer.pinLocked = 1;
         customer.pinLockedAt = new Date();
         user.isActive = 0;
+        user.lockReason = 'PIN_ATTEMPT';
         await this.userRepo.save(user);
 
         await this.audit.log(

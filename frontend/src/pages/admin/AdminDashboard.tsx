@@ -34,7 +34,7 @@ const roleLabel: Record<string, string> = {
   admin: "Quản trị viên",
 };
 
-type ActionType = "toggle-status" | "reset-password";
+type ActionType = "toggle-status";
 
 interface ActionModalState {
   type: ActionType;
@@ -62,13 +62,6 @@ const actionConfig: Record<
     submitLabel: "Xác nhận",
     description:
       "Thao tác này yêu cầu PIN admin và lý do để ghi nhận đầy đủ vào audit log.",
-  },
-  "reset-password": {
-    title: "Reset mật khẩu người dùng",
-    reasonLabel: "Lý do reset mật khẩu",
-    submitLabel: "Reset mật khẩu",
-    description:
-      "Hệ thống sẽ tạo mật khẩu tạm thời, gửi email và buộc người dùng đổi mật khẩu ở lần đăng nhập kế tiếp.",
   },
 };
 
@@ -126,21 +119,7 @@ export function AdminDashboard() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-users"] }),
   });
 
-  const resetPassword = useMutation({
-    mutationFn: ({
-      userId,
-      adminPin,
-      reason,
-    }: {
-      userId: string;
-      adminPin: string;
-      reason: string;
-    }) =>
-      api.post(`/admin/users/${userId}/reset-password`, { adminPin, reason }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-users"] }),
-  });
-
-  const isActionSubmitting = toggleStatus.isPending || resetPassword.isPending;
+  const isActionSubmitting = toggleStatus.isPending;
 
   const activeActionConfig = useMemo(
     () => (actionModal ? actionConfig[actionModal.type] : null),
@@ -194,20 +173,6 @@ export function AdminDashboard() {
             (actionModal.nextIsActive
               ? "Đã mở khóa tài khoản thành công."
               : "Đã khóa tài khoản thành công."),
-        });
-      }
-
-      if (actionModal.type === "reset-password") {
-        const res = await resetPassword.mutateAsync({
-          userId: actionModal.user.id,
-          adminPin,
-          reason: reason.trim(),
-        });
-        setFeedback({
-          type: "success",
-          message:
-            res?.data?.message ??
-            "Đã reset mật khẩu và gửi mật khẩu tạm thời qua email người dùng.",
         });
       }
 
@@ -272,7 +237,7 @@ export function AdminDashboard() {
               Quản lý tài khoản
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              Kích hoạt, khóa hoặc reset mật khẩu tài khoản. Thông tin nhạy cảm
+              Kích hoạt và mở khóa tài khoản. Thông tin nhạy cảm
               hiển thị theo chính sách bảo mật của hệ thống.
             </p>
             <div className="mt-3">
@@ -397,19 +362,6 @@ export function AdminDashboard() {
                           >
                             {u.isActive ? "Khóa" : "Mở khóa"}
                           </button>
-                          <button
-                            onClick={() =>
-                              openActionModal({
-                                type: "reset-password",
-                                user: u,
-                              })
-                            }
-                            disabled={resetPassword.isPending}
-                            className="w-full px-2 py-1.5 rounded text-[12.5px] font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors whitespace-nowrap"
-                          >
-                            Reset mật khẩu
-                          </button>
-                          {/* Temporarily hidden by security policy */}
                         </div>
                       )}
                     </td>

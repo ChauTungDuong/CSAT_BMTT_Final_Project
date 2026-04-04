@@ -20,6 +20,12 @@ export class Customer {
   @Column({ name: 'EMAIL', length: 200 })
   email: string;
 
+  @Column({ name: 'EMAIL_ENCRYPTED', type: 'blob', nullable: true })
+  emailEncrypted: Buffer | null;
+
+  @Column({ name: 'EMAIL_HASH', length: 64, nullable: true })
+  emailHash: string | null;
+
   @Column({ name: 'PHONE', type: 'blob' })
   phone: Buffer;
 

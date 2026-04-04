@@ -42,6 +42,12 @@ export class User {
   @Column({ name: 'EMAIL', length: 200 })
   email: string;
 
+  @Column({ name: 'EMAIL_ENCRYPTED', type: 'blob', nullable: true })
+  emailEncrypted: Buffer | null;
+
+  @Column({ name: 'EMAIL_HASH', length: 64, nullable: true })
+  emailHash: string | null;
+
   @Column({
     name: 'IS_ACTIVE',
     type: 'decimal',
@@ -50,6 +56,36 @@ export class User {
     default: 1,
   })
   isActive: number;
+
+  @Column({
+    name: 'PASSWORD_FAILED_ATTEMPTS',
+    type: 'number',
+    precision: 2,
+    default: 0,
+  })
+  passwordFailedAttempts: number;
+
+  @Column({
+    name: 'FORGOT_OTP_FAILED_ATTEMPTS',
+    type: 'number',
+    precision: 2,
+    default: 0,
+  })
+  forgotOtpFailedAttempts: number;
+
+  @Column({
+    name: 'PASSWORD_LOCKED',
+    type: 'number',
+    precision: 1,
+    default: 0,
+  })
+  passwordLocked: number;
+
+  @Column({ name: 'PASSWORD_LOCKED_AT', type: 'timestamp', nullable: true })
+  passwordLockedAt: Date | null;
+
+  @Column({ name: 'LOCK_REASON', length: 32, default: 'NONE' })
+  lockReason: string;
 
   @CreateDateColumn({ name: 'CREATED_AT' })
   createdAt: Date;

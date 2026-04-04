@@ -13,8 +13,8 @@ import { AuditService } from '../../audit/audit.service';
 import { MaskingEngine } from '../../masking/masking.engine';
 import { Role } from '../../common/types/role.enum';
 import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
+import { EmailCryptoService } from '../../crypto/services/email-crypto.service';
 import { MailService } from '../customers/mail.service';
-import * as crypto from 'crypto';
 
 @Injectable()
 export class AdminService {
@@ -34,6 +34,7 @@ export class AdminService {
     private audit: AuditService,
     private masking: MaskingEngine,
     private pbkdf2: Pbkdf2Service,
+    private emailCrypto: EmailCryptoService,
     private mailService: MailService,
   ) {}
 
@@ -123,7 +124,10 @@ export class AdminService {
       );
     }
 
-    await this.userRepo.update(userId, { isActive: isActive ? 1 : 0 });
+    await this.userRepo.update(userId, {
+      isActive: isActive ? 1 : 0,
+      lockReason: isActive ? 'NONE' : 'ADMIN',
+    });
 
     // Nếu mở khóa thì reset bộ đếm PIN sai
     if (isActive) {
@@ -134,6 +138,13 @@ export class AdminService {
         customer.pinLockedAt = null;
         await this.customerRepo.save(customer);
       }
+
+      target.passwordFailedAttempts = 0;
+      target.forgotOtpFailedAttempts = 0;
+      target.passwordLocked = 0;
+      target.passwordLockedAt = null;
+      target.lockReason = 'NONE';
+      await this.userRepo.save(target);
     }
 
     await this.audit.log(
@@ -147,7 +158,12 @@ export class AdminService {
     let warning: string | null = null;
     if (!isActive) {
       const customer = await this.customerRepo.findOne({ where: { userId } });
-      const recipient = (target.email || customer?.email || '').trim();
+      const recipient =
+        this.emailCrypto.readEmail(target.emailEncrypted, target.email) ||
+        this.emailCrypto.readEmail(
+          customer?.emailEncrypted || null,
+          customer?.email || '',
+        );
 
       if (!recipient) {
         warning = 'Không có email hợp lệ để gửi thông báo khóa tài khoản';
@@ -234,85 +250,6 @@ export class AdminService {
       'Admin security PIN updated',
     );
     return { message: 'Đã cập nhật PIN admin' };
-  }
-
-  async resetUserPassword(
-    userId: string,
-    adminId: string,
-    ip: string,
-    adminPin: string,
-    reason: string,
-  ) {
-    if (!reason?.trim()) {
-      throw new BadRequestException('Phải nhập lý do reset mật khẩu');
-    }
-
-    await this.verifyAdminPin(adminId, adminPin);
-
-    const target = await this.userRepo.findOne({ where: { id: userId } });
-    if (!target) throw new NotFoundException('Không tìm thấy người dùng');
-
-    if (target.id === adminId) {
-      throw new ForbiddenException(
-        'Không thể reset mật khẩu chính tài khoản admin hiện tại',
-      );
-    }
-
-    if (target.role === 'admin') {
-      throw new ForbiddenException(
-        'Không thể reset mật khẩu tài khoản quản trị viên',
-      );
-    }
-
-    const customer = await this.customerRepo.findOne({ where: { userId } });
-    const recipient = (target.email || customer?.email || '').trim();
-    if (!recipient) {
-      throw new BadRequestException(
-        'Người dùng chưa có email hợp lệ để nhận mật khẩu tạm thời',
-      );
-    }
-
-    const oldPasswordHash = target.passwordHash;
-    const oldForcePasswordChange = target.forcePasswordChange;
-
-    const tempPassword = this.generateTemporaryPassword();
-    target.passwordHash = this.pbkdf2.hashSecret(tempPassword, 'password');
-    target.forcePasswordChange = 1;
-    await this.userRepo.save(target);
-
-    try {
-      await this.mailService.sendTemporaryPasswordEmail(
-        recipient,
-        tempPassword,
-        reason,
-      );
-    } catch {
-      target.passwordHash = oldPasswordHash;
-      target.forcePasswordChange = oldForcePasswordChange;
-      await this.userRepo.save(target);
-
-      await this.audit.log(
-        'ADMIN_RESET_PASSWORD_FAIL',
-        adminId,
-        userId,
-        ip,
-        `reason: ${reason}, mail delivery failed`,
-      );
-
-      throw new BadRequestException(
-        'Không thể gửi email mật khẩu tạm thời. Vui lòng kiểm tra email hoặc cấu hình SMTP.',
-      );
-    }
-
-    await this.audit.log(
-      'ADMIN_RESET_PASSWORD',
-      adminId,
-      userId,
-      ip,
-      `reason: ${reason}`,
-    );
-
-    return { message: 'Đã reset mật khẩu và gửi email cho người dùng' };
   }
 
   async changeAdminSecurityPin(
@@ -448,14 +385,4 @@ export class AdminService {
     }
   }
 
-  private generateTemporaryPassword() {
-    const chars =
-      'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%';
-    const bytes = crypto.randomBytes(12);
-    let result = '';
-    for (let i = 0; i < bytes.length; i++) {
-      result += chars[bytes[i] % chars.length];
-    }
-    return result;
-  }
 }

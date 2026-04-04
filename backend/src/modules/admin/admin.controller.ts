@@ -74,21 +74,6 @@ export class AdminController {
     );
   }
 
-  @Post('users/:id/reset-password')
-  resetUserPassword(
-    @Param('id') id: string,
-    @Body() body: { adminPin: string; reason: string },
-    @Req() req: any,
-  ) {
-    return this.service.resetUserPassword(
-      id,
-      req.user.sub,
-      req.ip,
-      body.adminPin,
-      body.reason,
-    );
-  }
-
   @Post('users/:id/view-details')
   openSensitiveView(
     @Param('id') id: string,

@@ -62,6 +62,13 @@ export class AuthController {
     );
   }
 
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  logout(@Req() req: any) {
+    return this.authService.logout(req.user.sub, req.ip);
+  }
+
   @Post('forgot-password/request')
   @HttpCode(HttpStatus.OK)
   @Throttle({ auth: { limit: 5, ttl: 900000 } })

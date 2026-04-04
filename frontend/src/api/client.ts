@@ -92,12 +92,20 @@ api.interceptors.response.use(
       await maybeDecryptResponse(error.response);
     }
 
+    const message = (error.response?.data as any)?.message;
+    if (error.response?.status === 401 && message === "SESSION_REVOKED") {
+      sessionStorage.removeItem("auth");
+      window.location.href = "/login?reason=session-revoked";
+      return Promise.reject(error);
+    }
+
     const url = error.config?.url ?? "";
     if (
       error.response?.status === 401 &&
       !url.includes("verify-pin") &&
       !url.includes("/auth/login")
     ) {
+      sessionStorage.removeItem("auth");
       window.location.href = "/login";
     }
     return Promise.reject(error);

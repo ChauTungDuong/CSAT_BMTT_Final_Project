@@ -1,11 +1,22 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
 import api from "../../api/client";
+import { BackToDashboardLink } from "../../components/common/BackToDashboardLink";
 import type { Account, Transaction } from "../../types";
+import { accountTypeLabel } from "../../utils/accountLabels";
+
+const TX_STATUS_LABELS: Record<string, string> = {
+  completed: "Thành công",
+  failed: "Thất bại",
+  pending: "Đang xử lý",
+  cancelled: "Đã hủy",
+};
+
+function transactionStatusLabel(status: string): string {
+  return TX_STATUS_LABELS[status] ?? status;
+}
 
 export function TransactionHistoryPage() {
-  const navigate = useNavigate();
   const [page, setPage] = useState(1);
 
   const { data: accounts } = useQuery<Account[]>({
@@ -33,35 +44,29 @@ export function TransactionHistoryPage() {
   });
 
   return (
-    <div className="min-h-screen bg-gray-50 relative">
-      <div className="max-w-4xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate("/dashboard")}
-              className="text-blue-600 hover:underline text-sm"
-            >
-              ← Quay lại
-            </button>
-            <h1 className="text-xl font-bold text-gray-800">
+    <div className="min-h-screen bg-gradient-to-b from-slate-100/90 to-gray-50">
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
+        <div className="space-y-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm ring-1 ring-slate-100 sm:p-6 md:p-8">
+          <header>
+            <BackToDashboardLink className="mb-3" />
+            <h1 className="text-xl font-bold tracking-tight text-slate-800 sm:text-2xl">
               Lịch sử giao dịch
             </h1>
-          </div>
-        </div>
+          </header>
 
-        <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Tài khoản hiện tại
-          </label>
-          <div className="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2 bg-gray-50 text-gray-700 text-sm">
-            {currentAccount
-              ? `${currentAccount.accountNumber} (${currentAccount.accountType})`
-              : "Không tìm thấy tài khoản"}
+          <div className="rounded-xl border border-slate-100 bg-slate-50/90 p-5 sm:p-6">
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Tài khoản hiện tại
+            </label>
+            <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700">
+              {currentAccount
+                ? `${currentAccount.accountNumber} (${accountTypeLabel(currentAccount.accountType)})`
+                : "Không tìm thấy tài khoản"}
+            </div>
           </div>
-        </div>
 
-        {currentAccountId ? (
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          {currentAccountId ? (
+            <div className="overflow-hidden rounded-xl border border-slate-100">
             {isLoading ? (
               <div className="p-8 text-center text-gray-500">
                 Đang tải dữ liệu...
@@ -119,7 +124,7 @@ export function TransactionHistoryPage() {
                                   : "bg-yellow-100 text-yellow-700"
                             }`}
                           >
-                            {tx.status}
+                            {transactionStatusLabel(tx.status)}
                           </span>
                         </td>
                       </tr>
@@ -150,15 +155,14 @@ export function TransactionHistoryPage() {
                 </div>
               </div>
             )}
-          </div>
-        ) : (
-          <div className="bg-white rounded-xl shadow-sm p-8 text-center text-gray-500">
-            Bạn chưa có tài khoản để xem lịch sử giao dịch.
-          </div>
-        )}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-slate-100 bg-slate-50/90 p-8 text-center text-slate-500">
+              Bạn chưa có tài khoản để xem lịch sử giao dịch.
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 }
-
-export default TransactionHistoryPage;

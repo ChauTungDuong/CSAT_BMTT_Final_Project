@@ -1,7 +1,7 @@
 import { useState, FormEvent, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useNavigate } from "react-router-dom";
 import api from "../../api/client";
+import { BackToDashboardLink } from "../../components/common/BackToDashboardLink";
 import { PinModal } from "../../components/common/PinModal";
 import type { Customer } from "../../types";
 
@@ -19,12 +19,15 @@ function ProfileInfoCard({
   label: string;
   value?: string | null;
 }) {
+  const text = value && value.trim().length > 0 ? value : "--";
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-1 text-sm font-medium text-slate-800 break-words">
-        {value && value.trim().length > 0 ? value : "--"}
+    <div className="min-w-0">
+      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {label}
       </p>
+      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 sm:min-h-[2.75rem] sm:px-3.5 sm:py-3">
+        <p className="text-sm font-medium break-words text-slate-800">{text}</p>
+      </div>
     </div>
   );
 }
@@ -43,7 +46,6 @@ function toDateInputValue(dateValue?: string | null): string {
 }
 
 export function ProfilePage() {
-  const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [pinVerified, setPinVerified] = useState(false);
   const [viewToken, setViewToken] = useState("");
@@ -236,37 +238,30 @@ export function ProfilePage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="max-w-2xl mx-auto px-4 py-8">
-        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-bold text-slate-800">
-                Hồ sơ cá nhân
-              </h1>
-              <p className="text-sm text-slate-500 mt-1">
-                Quản lý thông tin cá nhân và thiết lập bảo mật PIN.
-              </p>
-            </div>
-            <button
-              onClick={() => navigate("/dashboard")}
-              className="text-sm border border-slate-300 px-3 py-2 rounded-lg text-slate-700 hover:bg-slate-50"
-            >
-              Quay lại
-            </button>
-          </div>
-        </div>
+    <div className="min-h-screen bg-gradient-to-b from-slate-100/90 to-gray-50">
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
+        <div className="space-y-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm ring-1 ring-slate-100 sm:p-6 md:p-8">
+          <header>
+            <BackToDashboardLink className="mb-3" />
+            <h1 className="text-xl font-bold tracking-tight text-slate-800 sm:text-2xl">
+              Hồ sơ cá nhân
+            </h1>
+            <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-500">
+              Quản lý thông tin cá nhân và thiết lập bảo mật PIN.
+            </p>
+          </header>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 mb-4">
-          <div className="flex justify-between items-center mb-4 border-b border-slate-200 pb-3">
+        <div className="rounded-xl border border-slate-100 bg-slate-50/90 p-6">
+          <div className="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-semibold text-lg text-slate-800">
               Thông tin cơ bản
             </h2>
-            <div className="flex gap-4 items-center">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4">
               {!pinVerified && (
                 <button
+                  type="button"
                   onClick={() => setShowPinModal(true)}
-                  className="text-sm font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg"
+                  className="inline-flex min-h-11 max-w-full items-center justify-center rounded-lg bg-blue-50 px-4 py-3 text-center text-sm font-medium text-blue-700 hover:bg-blue-100"
                 >
                   Xác thực PIN để xem đầy đủ
                 </button>
@@ -284,7 +279,7 @@ export function ProfilePage() {
                     });
                     setEditing(true);
                   }}
-                  className="text-sm bg-gray-100 text-gray-700 font-medium px-3 py-1 rounded hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg bg-gray-100 px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Cập nhật
                 </button>
@@ -356,13 +351,13 @@ export function ProfilePage() {
                 <button
                   type="button"
                   onClick={() => setEditing(false)}
-                  className="flex-1 border rounded-lg py-2 text-gray-600 hover:bg-gray-50"
+                  className="flex-1 min-h-11 rounded-lg border py-3 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 bg-blue-600 text-white rounded-lg py-2 hover:bg-blue-700"
+                  className="flex-1 min-h-11 rounded-lg bg-blue-600 py-3 text-sm font-medium text-white hover:bg-blue-700"
                 >
                   Xác nhận cập nhật
                 </button>
@@ -403,7 +398,7 @@ export function ProfilePage() {
         </div>
 
         {/* PIN */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+        <div className="rounded-xl border border-slate-100 bg-slate-50/90 p-6">
           <h2 className="font-semibold text-slate-800 mb-2">PIN bảo mật</h2>
           <p className="text-sm text-slate-500 mb-4">
             PIN 6 chữ số bảo vệ quyền xem thông tin nhạy cảm.
@@ -415,6 +410,7 @@ export function ProfilePage() {
           {pinError && <p className="text-red-500 text-sm mb-3">{pinError}</p>}
 
           <button
+            type="button"
             onClick={() => {
               setPinError("");
               if (profile?.hasPin) {
@@ -423,10 +419,11 @@ export function ProfilePage() {
                 setShowSetPin(true);
               }
             }}
-            className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-gray-900"
+            className="min-h-11 rounded-lg bg-gray-800 px-5 py-3 text-sm font-medium text-white hover:bg-gray-900"
           >
             {profile?.hasPin ? "Đổi PIN (xác thực 2 bước)" : "Đặt PIN"}
           </button>
+        </div>
         </div>
       </div>
 
@@ -494,14 +491,14 @@ export function ProfilePage() {
                     setShowChangePinStep1(false);
                     setPinError("");
                   }}
-                  className="flex-1 border rounded-lg py-2 text-gray-600 hover:bg-gray-50"
+                  className="flex-1 min-h-11 rounded-lg border py-3 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
                   disabled={pinSubmitting}
-                  className="flex-1 bg-blue-600 text-white rounded-lg py-2 hover:bg-blue-700 disabled:opacity-50"
+                  className="flex-1 min-h-11 rounded-lg bg-blue-600 py-3 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                 >
                   {pinSubmitting ? "Đang gửi..." : "Gửi OTP"}
                 </button>
@@ -570,14 +567,14 @@ export function ProfilePage() {
                     setConfirmNewPin("");
                     setPinError("");
                   }}
-                  className="flex-1 border rounded-lg py-2 text-gray-600 hover:bg-gray-50"
+                  className="flex-1 min-h-11 rounded-lg border py-3 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >
                   Hủy
                 </button>
                 <button
                   type="submit"
                   disabled={pinSubmitting}
-                  className="flex-1 bg-gray-800 text-white rounded-lg py-2 hover:bg-gray-900 disabled:opacity-50"
+                  className="flex-1 min-h-11 rounded-lg bg-gray-800 py-3 text-sm font-medium text-white hover:bg-gray-900 disabled:opacity-50"
                 >
                   {pinSubmitting ? "Đang xử lý..." : "Xác nhận đổi PIN"}
                 </button>

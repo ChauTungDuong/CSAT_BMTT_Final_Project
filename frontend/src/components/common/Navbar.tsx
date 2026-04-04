@@ -8,20 +8,21 @@ export default function Navbar() {
   const homeRoute = user?.role === "admin" ? "/admin" : "/dashboard";
 
   return (
-    <nav className="bg-blue-700 text-white px-6 py-3 flex items-center justify-between shadow">
+    <nav className="flex min-h-14 items-center justify-between bg-blue-700 px-6 py-4 text-white shadow sm:min-h-[3.75rem] sm:py-4">
       <Link to={homeRoute} className="text-xl font-bold tracking-wide">
         BankDemo
       </Link>
-      <div className="flex items-center gap-4">
-        <span className="text-sm opacity-75 capitalize">
+      <div className="flex items-center gap-4 sm:gap-5">
+        <span className="text-sm leading-none opacity-75 capitalize">
           {user?.role ?? "guest"}
         </span>
         <button
+          type="button"
           onClick={() => {
             logout();
             navigate("/login");
           }}
-          className="bg-white text-blue-700 text-sm px-3 py-1 rounded hover:bg-blue-50 transition"
+          className="rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-blue-700 shadow-sm transition hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/90 focus-visible:ring-offset-2 focus-visible:ring-offset-blue-700"
         >
           Đăng xuất
         </button>

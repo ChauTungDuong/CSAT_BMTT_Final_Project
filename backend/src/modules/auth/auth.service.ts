@@ -26,6 +26,10 @@ import { UserKeyMetadataService } from '../../crypto/services/user-key-metadata.
 import { EmailCryptoService } from '../../crypto/services/email-crypto.service';
 import { MailService } from '../customers/mail.service';
 import { SessionRegistryService } from './services/session-registry.service';
+import {
+  CellValue,
+  EncryptedCell,
+} from '../../crypto/interfaces/crypto.interface';
 
 @Injectable()
 export class AuthService {
@@ -80,19 +84,16 @@ export class AuthService {
     if (exists)
       throw new ConflictException('Tên đăng nhập hoặc email đã tồn tại');
 
-    // Uniqueness check for phone and cccd (decryption needed)
+    // Uniqueness check for phone and cccd.
+    // Do not use context-dependent decrypt() here because register is pre-auth flow.
     const allCustomers = await this.customerRepo.find();
     for (const c of allCustomers) {
-      const decPhone = await this.aesService.decrypt(
-        this.aesService.deserialize(c.phone),
-      );
-      const decCccd = await this.aesService.decrypt(
-        this.aesService.deserialize(c.cccd),
-      );
-      if (decPhone === dto.phone) {
+      const decPhone = await this.decryptCustomerFieldForUniqueness(c, c.phone);
+      const decCccd = await this.decryptCustomerFieldForUniqueness(c, c.cccd);
+      if (decPhone !== null && decPhone === dto.phone) {
         throw new ConflictException('Số điện thoại đã tồn tại');
       }
-      if (decCccd === dto.cccd) {
+      if (decCccd !== null && decCccd === dto.cccd) {
         throw new ConflictException('Căn cước công dân đã tồn tại');
       }
     }
@@ -344,7 +345,8 @@ export class AuthService {
 
       user.email = this.emailCrypto.encryptEmail(normalizedEmail);
       user.emailHash = emailHash;
-      if (customer) customer.email = this.emailCrypto.encryptEmail(normalizedEmail);
+      if (customer)
+        customer.email = this.emailCrypto.encryptEmail(normalizedEmail);
       if (customer) {
         customer.emailHash = emailHash;
       }
@@ -840,5 +842,52 @@ export class AuthService {
 
   private generateOtpCode() {
     return `${crypto.randomInt(0, 1_000_000)}`.padStart(6, '0');
+  }
+
+  private async decryptCustomerFieldForUniqueness(
+    customer: Customer,
+    rawCell: any,
+  ): Promise<string | null> {
+    const blob = await this.aesService.readOracleLob(rawCell);
+    const cell = this.aesService.deserialize(blob);
+
+    // Fast path: runtime DEK exists for active sessions.
+    try {
+      const plain = await this.aesService.decryptForUser(customer.userId, cell);
+      if (plain !== null) {
+        return plain;
+      }
+    } catch {
+      // Fallback below.
+    }
+
+    const metadata = await this.userKeyMetadata.findByUserId(customer.userId);
+    const recoveredDek = this.unwrapDekWithRecoveryKey(
+      metadata?.recoveryWrappedDekB64,
+    );
+    if (!recoveredDek) {
+      return null;
+    }
+
+    return this.decryptCellWithDek(cell, recoveredDek);
+  }
+
+  private decryptCellWithDek(cell: CellValue, dek: Buffer): string | null {
+    if (cell.type === 'clear') {
+      return cell.data;
+    }
+
+    const enc = cell as EncryptedCell;
+    try {
+      const plain = decryptGCM(
+        dek,
+        Buffer.from(enc.iv, 'base64'),
+        Buffer.from(enc.payload, 'base64'),
+        Buffer.from(enc.tag, 'base64'),
+      );
+      return Buffer.from(plain).toString('utf8');
+    } catch {
+      return null;
+    }
   }
 }

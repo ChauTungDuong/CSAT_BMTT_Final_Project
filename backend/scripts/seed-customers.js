@@ -1,7 +1,11 @@
 // Usage:
 //   node scripts/seed-customers.js --mode=cloud
 //   node scripts/seed-customers.js --mode=local
-const path = require('path');
+//   node scripts/seed-customers.js --mode=cloud --fresh
+
+const path = require('node:path');
+const crypto = require('crypto');
+const oracledb = require('oracledb');
 
 const envFile = process.env.ENV_FILE
   ? path.resolve(process.cwd(), process.env.ENV_FILE)
@@ -9,6 +13,8 @@ const envFile = process.env.ENV_FILE
 require('dotenv').config({ path: envFile });
 
 const args = process.argv.slice(2);
+const fresh = args.includes('--fresh');
+
 function getArgValue(flagName) {
   const prefix = `${flagName}=`;
   const match = args.find((arg) => arg.startsWith(prefix));
@@ -22,6 +28,18 @@ const runtimeMode = (
 )
   .toLowerCase()
   .trim();
+
+const aesMasterKeyHex = (process.env.AES_MASTER_KEY || '').trim();
+const dekRecoveryKeyHex = (process.env.DEK_RECOVERY_KEY || '').trim();
+
+if (!/^[0-9a-fA-F]{64}$/.test(aesMasterKeyHex)) {
+  throw new Error('AES_MASTER_KEY must be 64 hex chars');
+}
+
+const masterKey = Buffer.from(aesMasterKeyHex, 'hex');
+const recoveryKey = /^[0-9a-fA-F]{64}$/.test(dekRecoveryKeyHex)
+  ? Buffer.from(dekRecoveryKeyHex, 'hex')
+  : null;
 
 function buildConnectionOptions() {
   if (runtimeMode === 'local') {
@@ -53,21 +71,9 @@ function buildConnectionOptions() {
     walletPassword: process.env.WALLET_PASSWORD,
   };
 }
-const crypto = require('crypto');
-const oracledb = require('oracledb');
-
-const masterKey = Buffer.from(process.env.AES_MASTER_KEY, 'hex');
 
 function hmacSha256(key, data) {
   return crypto.createHmac('sha256', key).update(data).digest();
-}
-
-function hashAccountNumber(accountNumber) {
-  const normalized = accountNumber.trim();
-  return crypto
-    .createHmac('sha256', masterKey)
-    .update(normalized)
-    .digest('hex');
 }
 
 function pbkdf2Manual(secret, salt, iterations, dkLen) {
@@ -98,9 +104,8 @@ function pbkdf2Manual(secret, salt, iterations, dkLen) {
 
 function hashSecret(secret, purpose) {
   const iterations = purpose === 'pin' ? 220000 : 310000;
-  const dkLen = 32;
   const salt = crypto.randomBytes(16);
-  const derived = pbkdf2Manual(secret, salt, iterations, dkLen);
+  const derived = pbkdf2Manual(secret, salt, iterations, 32);
   return [
     'pbkdf2',
     'sha256',
@@ -110,377 +115,552 @@ function hashSecret(secret, purpose) {
   ].join('$');
 }
 
-function encrypt(plaintext) {
+function deriveKek(password, saltHex, iterations, keyLength = 32) {
+  return pbkdf2Manual(
+    password,
+    Buffer.from(saltHex, 'hex'),
+    iterations,
+    keyLength,
+  );
+}
+
+function encryptCellWithKey(key, plaintext) {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', masterKey, iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
   const ciphertext = Buffer.concat([
-    cipher.update(plaintext, 'utf8'),
+    cipher.update(Buffer.from(String(plaintext), 'utf8')),
     cipher.final(),
   ]);
   const tag = cipher.getAuthTag();
-  const p = ciphertext.toString('base64');
-  const i = iv.toString('base64');
-  const t = tag.toString('base64');
+
   return Buffer.from(
     JSON.stringify({
       type: 'encrypted',
       algo: 'aes-256-gcm',
-      payload: p,
-      iv: i,
-      tag: t,
+      payload: ciphertext.toString('base64'),
+      iv: iv.toString('base64'),
+      tag: tag.toString('base64'),
     }),
+    'utf8',
   );
 }
 
+function wrapDekWithKey(kek, dek) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', kek, iv);
+  const ciphertext = Buffer.concat([cipher.update(dek), cipher.final()]);
+  const tag = cipher.getAuthTag();
+
+  return JSON.stringify({
+    iv: iv.toString('base64'),
+    tag: tag.toString('base64'),
+    payload: ciphertext.toString('base64'),
+  });
+}
+
+function hashAccountNumber(accountNumber) {
+  return hmacSha256(
+    masterKey,
+    Buffer.from(accountNumber.trim(), 'utf8'),
+  ).toString('hex');
+}
+
+const admins = [
+  {
+    id: 'USR-ADMIN-001',
+    username: 'admin1',
+    fullName: 'System Admin 1',
+    email: 'admin1@bank.local',
+    adminPin: '123456',
+  },
+  {
+    id: 'USR-ADMIN-002',
+    username: 'admin2',
+    fullName: 'System Admin 2',
+    email: 'admin2@bank.local',
+    adminPin: '123456',
+  },
+];
+
+const customers = [
+  {
+    userId: 'USR-CUST-001',
+    customerId: 'CUS-CUST-001',
+    accountId: 'ACC-CUST-001',
+    username: 'customer01',
+    fullName: 'Nguyen Van An',
+    email: 'customer01@bank.local',
+    phone: '0901111111',
+    cccd: '079204001001',
+    dob: '15/03/1990',
+    address: '123 Le Loi, Quan 1, TP.HCM',
+    accountNumber: 'VN1000000001',
+    balance: '1500000',
+    pin: '123456',
+  },
+  {
+    userId: 'USR-CUST-002',
+    customerId: 'CUS-CUST-002',
+    accountId: 'ACC-CUST-002',
+    username: 'customer02',
+    fullName: 'Tran Thi Binh',
+    email: 'customer02@bank.local',
+    phone: '0901111112',
+    cccd: '079204001002',
+    dob: '22/07/1995',
+    address: '45 Nguyen Hue, Hoan Kiem, Ha Noi',
+    accountNumber: 'VN1000000002',
+    balance: '3200000',
+    pin: '123456',
+  },
+  {
+    userId: 'USR-CUST-003',
+    customerId: 'CUS-CUST-003',
+    accountId: 'ACC-CUST-003',
+    username: 'customer03',
+    fullName: 'Le Hoang Cuong',
+    email: 'customer03@bank.local',
+    phone: '0901111113',
+    cccd: '079204001003',
+    dob: '08/11/1988',
+    address: '18 Tran Phu, Hai Chau, Da Nang',
+    accountNumber: 'VN1000000003',
+    balance: '7800000',
+    pin: '123456',
+  },
+];
+
+async function upsertUser(conn, payload) {
+  const existing = await conn.execute(`SELECT ID FROM USERS WHERE ID = :id`, {
+    id: payload.id,
+  });
+
+  if ((existing.rows || []).length > 0) {
+    await conn.execute(
+      `UPDATE USERS
+       SET USERNAME = :username,
+           PASSWORD_HASH = :passwordHash,
+           FULL_NAME = :fullName,
+           EMAIL = :email,
+           ROLE = :role,
+           IS_ACTIVE = 1,
+           ADMIN_PIN_HASH = :adminPinHash,
+           FORCE_PASSWORD_CHANGE = 0,
+           UPDATED_AT = SYSTIMESTAMP
+       WHERE ID = :id`,
+      payload,
+    );
+    return 'updated';
+  }
+
+  await conn.execute(
+    `INSERT INTO USERS (
+       ID, USERNAME, PASSWORD_HASH, FULL_NAME, EMAIL, ROLE, IS_ACTIVE, ADMIN_PIN_HASH, FORCE_PASSWORD_CHANGE
+     ) VALUES (
+       :id, :username, :passwordHash, :fullName, :email, :role, 1, :adminPinHash, 0
+     )`,
+    payload,
+  );
+  return 'inserted';
+}
+
+async function upsertCustomer(conn, c, userDek) {
+  const pinHash = hashSecret(c.pin, 'pin');
+  const encPhone = encryptCellWithKey(userDek, c.phone);
+  const encCccd = encryptCellWithKey(userDek, c.cccd);
+  const encDob = encryptCellWithKey(userDek, c.dob);
+  const encAddress = encryptCellWithKey(userDek, c.address);
+
+  const existing = await conn.execute(
+    `SELECT ID FROM CUSTOMERS WHERE ID = :id OR USER_ID = :userId`,
+    { id: c.customerId, userId: c.userId },
+  );
+
+  if ((existing.rows || []).length > 0) {
+    const customerId = existing.rows[0][0];
+    await conn.execute(
+      `UPDATE CUSTOMERS
+       SET USER_ID = :userId,
+           FULL_NAME = :fullName,
+           EMAIL = :email,
+           PHONE = :phone,
+           CCCD = :cccd,
+           DATE_OF_BIRTH = :dob,
+           ADDRESS = :address,
+           PIN_HASH = :pinHash,
+           PIN_FAILED_ATTEMPTS = 0,
+           PIN_LOCKED = 0,
+           PIN_LOCKED_AT = NULL,
+           UPDATED_AT = SYSTIMESTAMP
+       WHERE ID = :id`,
+      {
+        id: customerId,
+        userId: c.userId,
+        fullName: c.fullName,
+        email: c.email,
+        phone: { val: encPhone, type: oracledb.BUFFER },
+        cccd: { val: encCccd, type: oracledb.BUFFER },
+        dob: { val: encDob, type: oracledb.BUFFER },
+        address: { val: encAddress, type: oracledb.BUFFER },
+        pinHash,
+      },
+    );
+    return customerId;
+  }
+
+  await conn.execute(
+    `INSERT INTO CUSTOMERS (
+       ID, USER_ID, FULL_NAME, EMAIL, PHONE, CCCD, DATE_OF_BIRTH, ADDRESS,
+       PIN_HASH, PIN_FAILED_ATTEMPTS, PIN_LOCKED, PIN_LOCKED_AT
+     ) VALUES (
+       :id, :userId, :fullName, :email, :phone, :cccd, :dob, :address,
+       :pinHash, 0, 0, NULL
+     )`,
+    {
+      id: c.customerId,
+      userId: c.userId,
+      fullName: c.fullName,
+      email: c.email,
+      phone: { val: encPhone, type: oracledb.BUFFER },
+      cccd: { val: encCccd, type: oracledb.BUFFER },
+      dob: { val: encDob, type: oracledb.BUFFER },
+      address: { val: encAddress, type: oracledb.BUFFER },
+      pinHash,
+    },
+  );
+  return c.customerId;
+}
+
+async function upsertAccount(conn, c, customerId, userDek) {
+  const accHash = hashAccountNumber(c.accountNumber);
+  const encAccNumber = encryptCellWithKey(userDek, c.accountNumber);
+  const encBalance = encryptCellWithKey(userDek, c.balance);
+
+  const existing = await conn.execute(
+    `SELECT ID FROM ACCOUNTS WHERE ID = :id OR CUSTOMER_ID = :customerId`,
+    { id: c.accountId, customerId },
+  );
+
+  if ((existing.rows || []).length > 0) {
+    const accountId = existing.rows[0][0];
+    await conn.execute(
+      `UPDATE ACCOUNTS
+       SET CUSTOMER_ID = :customerId,
+           ACCOUNT_NUMBER = :accountNumber,
+           ACCOUNT_NUMBER_HASH = :accountNumberHash,
+           ACCOUNT_TYPE = 'saving',
+           BALANCE = :balance,
+           IS_ACTIVE = 1
+       WHERE ID = :id`,
+      {
+        id: accountId,
+        customerId,
+        accountNumber: { val: encAccNumber, type: oracledb.BUFFER },
+        accountNumberHash: accHash,
+        balance: { val: encBalance, type: oracledb.BUFFER },
+      },
+    );
+    return 'updated';
+  }
+
+  await conn.execute(
+    `INSERT INTO ACCOUNTS (
+       ID, CUSTOMER_ID, ACCOUNT_NUMBER, ACCOUNT_NUMBER_HASH,
+       ACCOUNT_TYPE, BALANCE, IS_ACTIVE
+     ) VALUES (
+       :id, :customerId, :accountNumber, :accountNumberHash,
+       'saving', :balance, 1
+     )`,
+    {
+      id: c.accountId,
+      customerId,
+      accountNumber: { val: encAccNumber, type: oracledb.BUFFER },
+      accountNumberHash: accHash,
+      balance: { val: encBalance, type: oracledb.BUFFER },
+    },
+  );
+  return 'inserted';
+}
+
+async function upsertUserKeyMetadata(conn, userId, password, userDek) {
+  const kdfIterations = 310000;
+  const kdfSaltHex = crypto.randomBytes(16).toString('hex');
+  const kek = deriveKek(password, kdfSaltHex, kdfIterations, 32);
+  const wrappedDekB64 = wrapDekWithKey(kek, userDek);
+  const recoveryWrappedDekB64 = recoveryKey
+    ? wrapDekWithKey(recoveryKey, userDek)
+    : null;
+
+  const existing = await conn.execute(
+    `SELECT USER_ID FROM USER_KEY_METADATA WHERE USER_ID = :userId`,
+    { userId },
+  );
+
+  if ((existing.rows || []).length > 0) {
+    await conn.execute(
+      `UPDATE USER_KEY_METADATA
+       SET KDF_ALGO = 'pbkdf2-sha256',
+           KDF_ITERATIONS = :kdfIterations,
+           KDF_SALT_HEX = :kdfSaltHex,
+           WRAPPED_DEK_B64 = :wrappedDekB64,
+           RECOVERY_WRAPPED_DEK_B64 = :recoveryWrappedDekB64,
+           KEY_VERSION = 1,
+           PASSWORD_EPOCH = 1,
+           MIGRATION_STATE = 'active',
+           UPDATED_AT = SYSTIMESTAMP
+       WHERE USER_ID = :userId`,
+      {
+        userId,
+        kdfIterations,
+        kdfSaltHex,
+        wrappedDekB64,
+        recoveryWrappedDekB64,
+      },
+    );
+    return;
+  }
+
+  await conn.execute(
+    `INSERT INTO USER_KEY_METADATA (
+       USER_ID, KDF_ALGO, KDF_ITERATIONS, KDF_SALT_HEX,
+       WRAPPED_DEK_B64, RECOVERY_WRAPPED_DEK_B64,
+       KEY_VERSION, PASSWORD_EPOCH, MIGRATION_STATE
+     ) VALUES (
+       :userId, 'pbkdf2-sha256', :kdfIterations, :kdfSaltHex,
+       :wrappedDekB64, :recoveryWrappedDekB64,
+       1, 1, 'active'
+     )`,
+    {
+      userId,
+      kdfIterations,
+      kdfSaltHex,
+      wrappedDekB64,
+      recoveryWrappedDekB64,
+    },
+  );
+}
+
+async function cleanupSeedRows(conn) {
+  const userIds = [
+    ...admins.map((a) => a.id),
+    ...customers.map((c) => c.userId),
+  ];
+  const requestedCustomerIds = customers.map((c) => c.customerId);
+  const requestedAccountIds = customers.map((c) => c.accountId);
+
+  const userBinds = Object.assign(
+    {},
+    ...userIds.map((id, i) => ({ [`u${i}`]: id })),
+  );
+
+  const existingCustomerRows = await conn.execute(
+    `SELECT ID FROM CUSTOMERS WHERE USER_ID IN (${userIds.map((_, i) => `:u${i}`).join(',')})`,
+    userBinds,
+  );
+
+  const discoveredCustomerIds = (existingCustomerRows.rows || []).map((r) =>
+    String(r[0]),
+  );
+  const customerIds = Array.from(
+    new Set([...requestedCustomerIds, ...discoveredCustomerIds]),
+  );
+
+  const customerBinds = Object.assign(
+    {},
+    ...customerIds.map((id, i) => ({ [`c${i}`]: id })),
+  );
+
+  const existingAccountRows = customerIds.length
+    ? await conn.execute(
+        `SELECT ID FROM ACCOUNTS WHERE CUSTOMER_ID IN (${customerIds.map((_, i) => `:c${i}`).join(',')})`,
+        customerBinds,
+      )
+    : { rows: [] };
+
+  const discoveredAccountIds = (existingAccountRows.rows || []).map((r) =>
+    String(r[0]),
+  );
+  const accountIds = Array.from(
+    new Set([...requestedAccountIds, ...discoveredAccountIds]),
+  );
+
+  if (accountIds.length > 0) {
+    await conn.execute(
+      `DELETE FROM TRANSACTIONS WHERE FROM_ACCOUNT_ID IN (${accountIds.map((_, i) => `:a${i}`).join(',')})
+         OR TO_ACCOUNT_ID IN (${accountIds.map((_, i) => `:b${i}`).join(',')})`,
+      Object.assign(
+        {},
+        ...accountIds.map((id, i) => ({ [`a${i}`]: id })),
+        ...accountIds.map((id, i) => ({ [`b${i}`]: id })),
+      ),
+    );
+
+    await conn.execute(
+      `DELETE FROM CARDS WHERE ACCOUNT_ID IN (${accountIds.map((_, i) => `:ac${i}`).join(',')})`,
+      Object.assign({}, ...accountIds.map((id, i) => ({ [`ac${i}`]: id }))),
+    );
+
+    await conn.execute(
+      `DELETE FROM ACCOUNTS WHERE ID IN (${accountIds.map((_, i) => `:e${i}`).join(',')})`,
+      Object.assign({}, ...accountIds.map((id, i) => ({ [`e${i}`]: id }))),
+    );
+  }
+
+  if (customerIds.length > 0) {
+    await conn.execute(
+      `DELETE FROM CARDS WHERE CUSTOMER_ID IN (${customerIds.map((_, i) => `:d${i}`).join(',')})`,
+      Object.assign({}, ...customerIds.map((id, i) => ({ [`d${i}`]: id }))),
+    );
+
+    await conn.execute(
+      `DELETE FROM CUSTOMERS WHERE ID IN (${customerIds.map((_, i) => `:f${i}`).join(',')})`,
+      Object.assign({}, ...customerIds.map((id, i) => ({ [`f${i}`]: id }))),
+    );
+  }
+
+  await conn.execute(
+    `DELETE FROM CUSTOMERS WHERE USER_ID IN (${userIds.map((_, i) => `:uu${i}`).join(',')})`,
+    Object.assign({}, ...userIds.map((id, i) => ({ [`uu${i}`]: id }))),
+  );
+
+  await conn.execute(
+    `DELETE FROM USER_KEY_METADATA WHERE USER_ID IN (${userIds.map((_, i) => `:g${i}`).join(',')})`,
+    Object.assign({}, ...userIds.map((id, i) => ({ [`g${i}`]: id }))),
+  );
+
+  await conn.execute(
+    `DELETE FROM USERS WHERE ID IN (${userIds.map((_, i) => `:h${i}`).join(',')})`,
+    Object.assign({}, ...userIds.map((id, i) => ({ [`h${i}`]: id }))),
+  );
+}
+
+async function tableExists(conn, tableName) {
+  const result = await conn.execute(
+    `SELECT COUNT(1) FROM USER_TABLES WHERE TABLE_NAME = :tableName`,
+    { tableName: tableName.toUpperCase() },
+  );
+  return Number(result.rows?.[0]?.[0] || 0) > 0;
+}
+
+async function columnExists(conn, tableName, columnName) {
+  const result = await conn.execute(
+    `SELECT COUNT(1)
+       FROM USER_TAB_COLUMNS
+      WHERE TABLE_NAME = :tableName
+        AND COLUMN_NAME = :columnName`,
+    {
+      tableName: tableName.toUpperCase(),
+      columnName: columnName.toUpperCase(),
+    },
+  );
+  return Number(result.rows?.[0]?.[0] || 0) > 0;
+}
+
+async function ensureUserKeyMetadataSchema(conn) {
+  const hasTable = await tableExists(conn, 'USER_KEY_METADATA');
+
+  if (!hasTable) {
+    await conn.execute(`
+      CREATE TABLE USER_KEY_METADATA (
+        USER_ID VARCHAR2(36) PRIMARY KEY,
+        KDF_ALGO VARCHAR2(32) DEFAULT 'pbkdf2-sha256' NOT NULL,
+        KDF_ITERATIONS NUMBER(10, 0) DEFAULT 310000 NOT NULL,
+        KDF_SALT_HEX VARCHAR2(128) NOT NULL,
+        WRAPPED_DEK_B64 CLOB NOT NULL,
+        RECOVERY_WRAPPED_DEK_B64 CLOB,
+        KEY_VERSION NUMBER(10, 0) DEFAULT 1 NOT NULL,
+        PASSWORD_EPOCH NUMBER(10, 0) DEFAULT 1 NOT NULL,
+        MIGRATION_STATE VARCHAR2(24) DEFAULT 'legacy' NOT NULL,
+        CREATED_AT TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        UPDATED_AT TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+      )
+    `);
+
+    await conn.execute(
+      `CREATE INDEX IDX_USER_KEY_METADATA_MIGRATION_STATE ON USER_KEY_METADATA (MIGRATION_STATE)`,
+    );
+
+    await conn.execute(`
+      ALTER TABLE USER_KEY_METADATA
+      ADD CONSTRAINT FK_UKM_USER
+      FOREIGN KEY (USER_ID)
+      REFERENCES USERS(ID)
+    `);
+    return;
+  }
+
+  if (
+    !(await columnExists(conn, 'USER_KEY_METADATA', 'RECOVERY_WRAPPED_DEK_B64'))
+  ) {
+    await conn.execute(
+      `ALTER TABLE USER_KEY_METADATA ADD (RECOVERY_WRAPPED_DEK_B64 CLOB)`,
+    );
+  }
+
+  if (!(await columnExists(conn, 'USER_KEY_METADATA', 'PASSWORD_EPOCH'))) {
+    await conn.execute(
+      `ALTER TABLE USER_KEY_METADATA ADD (PASSWORD_EPOCH NUMBER(10, 0) DEFAULT 1 NOT NULL)`,
+    );
+  }
+}
+
 async function seed() {
-  console.log(`Running seed in mode: ${runtimeMode}`);
+  console.log(`Running secure seed in mode: ${runtimeMode}`);
   const conn = await oracledb.getConnection(buildConnectionOptions());
 
-  const pinHash = hashSecret('123456', 'pin');
-  const userPasswordHash = hashSecret('Password@123', 'password');
+  try {
+    await ensureUserKeyMetadataSchema(conn);
 
-  const admins = [
-    {
-      userId: 'USR-ADMIN-001',
-      username: 'admin1',
-      fullName: 'System Admin 1',
-      email: 'admin1@bank.local',
-      role: 'admin',
-      adminPinHash: hashSecret('123456', 'pin'),
-    },
-    {
-      userId: 'USR-ADMIN-002',
-      username: 'admin2',
-      fullName: 'System Admin 2',
-      email: 'admin2@bank.local',
-      role: 'admin',
-      adminPinHash: hashSecret('123456', 'pin'),
-    },
-  ];
-
-  const customers = [
-    {
-      userId: 'USR-CUST-001',
-      username: 'customer01',
-      fullName: 'Nguyen Van An',
-      email: 'customer01@bank.local',
-      phone: '0901111111',
-      cccd: '079204001001',
-      dob: '15/03/1990',
-      address: '123 Le Loi, Quan 1, TP.HCM',
-      accountNumber: 'VN1000000001',
-      balance: '1500000',
-    },
-    {
-      userId: 'USR-CUST-002',
-      username: 'customer02',
-      fullName: 'Tran Thi Binh',
-      email: 'customer02@bank.local',
-      phone: '0901111112',
-      cccd: '079204001002',
-      dob: '22/07/1995',
-      address: '45 Nguyen Hue, Hoan Kiem, Ha Noi',
-      accountNumber: 'VN1000000002',
-      balance: '3200000',
-    },
-    {
-      userId: 'USR-CUST-003',
-      username: 'customer03',
-      fullName: 'Le Hoang Cuong',
-      email: 'customer03@bank.local',
-      phone: '0901111113',
-      cccd: '079204001003',
-      dob: '08/11/1988',
-      address: '18 Tran Phu, Hai Chau, Da Nang',
-      accountNumber: 'VN1000000003',
-      balance: '7800000',
-    },
-    {
-      userId: 'USR-CUST-004',
-      username: 'customer04',
-      fullName: 'Pham Thi Dung',
-      email: 'customer04@bank.local',
-      phone: '0901111114',
-      cccd: '079204001004',
-      dob: '01/05/1992',
-      address: '77 Nguyen Thi Minh Khai, Ninh Kieu, Can Tho',
-      accountNumber: 'VN1000000004',
-      balance: '12500000',
-    },
-    {
-      userId: 'USR-CUST-005',
-      username: 'customer05',
-      fullName: 'Vo Minh Duc',
-      email: 'customer05@bank.local',
-      phone: '0901111115',
-      cccd: '079204001005',
-      dob: '30/09/1993',
-      address: '12 Le Hong Phong, Nha Trang, Khanh Hoa',
-      accountNumber: 'VN1000000005',
-      balance: '25000000',
-    },
-    {
-      userId: 'USR-CUST-006',
-      username: 'customer06',
-      fullName: 'Bui Thu Ha',
-      email: 'customer06@bank.local',
-      phone: '0901111116',
-      cccd: '079204001006',
-      dob: '12/12/1997',
-      address: '39 Nguyen Tat Thanh, Vung Tau, Ba Ria Vung Tau',
-      accountNumber: 'VN1000000006',
-      balance: '50300000',
-    },
-    {
-      userId: 'USR-CUST-007',
-      username: 'customer07',
-      fullName: 'Dang Quang Hung',
-      email: 'customer07@bank.local',
-      phone: '0901111117',
-      cccd: '079204001007',
-      dob: '06/06/1987',
-      address: '101 Cach Mang Thang 8, Ninh Kieu, Can Tho',
-      accountNumber: 'VN1000000007',
-      balance: '90000000',
-    },
-    {
-      userId: 'USR-CUST-008',
-      username: 'customer08',
-      fullName: 'Nguyen Khanh Linh',
-      email: 'customer08@bank.local',
-      phone: '0901111118',
-      cccd: '079204001008',
-      dob: '20/01/2000',
-      address: '66 3/2, Hai Chau, Da Nang',
-      accountNumber: 'VN1000000008',
-      balance: '125000000',
-    },
-    {
-      userId: 'USR-CUST-009',
-      username: 'customer09',
-      fullName: 'Do Gia Minh',
-      email: 'customer09@bank.local',
-      phone: '0901111119',
-      cccd: '079204001009',
-      dob: '10/10/1991',
-      address: '9 Hung Vuong, Hai Chau, Da Nang',
-      accountNumber: 'VN1000000009',
-      balance: '210000000',
-    },
-    {
-      userId: 'USR-CUST-010',
-      username: 'customer10',
-      fullName: 'Pham Quynh Nhu',
-      email: 'customer10@bank.local',
-      phone: '0901111120',
-      cccd: '079204001010',
-      dob: '03/03/1998',
-      address: '88 Dong Khoi, Quan 1, TP.HCM',
-      accountNumber: 'VN1000000010',
-      balance: '500000000',
-    },
-  ];
-
-  for (const admin of admins) {
-    const existing = await conn.execute(`SELECT ID FROM USERS WHERE ID = :id`, {
-      id: admin.userId,
-    });
-
-    if ((existing.rows || []).length > 0) {
-      await conn.execute(
-        `UPDATE USERS
-         SET USERNAME = :username,
-             PASSWORD_HASH = :passwordHash,
-             FULL_NAME = :fullName,
-             EMAIL = :email,
-             ROLE = :role,
-             IS_ACTIVE = 1,
-             ADMIN_PIN_HASH = :adminPinHash,
-             FORCE_PASSWORD_CHANGE = 0,
-             UPDATED_AT = SYSTIMESTAMP
-         WHERE ID = :id`,
-        {
-          id: admin.userId,
-          username: admin.username,
-          passwordHash: userPasswordHash,
-          fullName: admin.fullName,
-          email: admin.email,
-          role: admin.role,
-          adminPinHash: admin.adminPinHash,
-        },
-      );
-      console.log(`♻️  Updated admin user: ${admin.username}`);
-    } else {
-      await conn.execute(
-        `INSERT INTO USERS (
-            ID, USERNAME, PASSWORD_HASH, FULL_NAME, EMAIL, ROLE, IS_ACTIVE, ADMIN_PIN_HASH, FORCE_PASSWORD_CHANGE
-         ) VALUES (
-            :id, :username, :passwordHash, :fullName, :email, :role, 1, :adminPinHash, 0
-         )`,
-        {
-          id: admin.userId,
-          username: admin.username,
-          passwordHash: userPasswordHash,
-          fullName: admin.fullName,
-          email: admin.email,
-          role: admin.role,
-          adminPinHash: admin.adminPinHash,
-        },
-      );
-      console.log(`✅ Created admin user: ${admin.username}`);
+    if (fresh) {
+      console.log('Clearing previously seeded rows...');
+      await cleanupSeedRows(conn);
     }
+
+    const defaultPassword = 'Password@123';
+    for (const admin of admins) {
+      const adminResult = await upsertUser(conn, {
+        id: admin.id,
+        username: admin.username,
+        passwordHash: hashSecret(defaultPassword, 'password'),
+        fullName: admin.fullName,
+        email: admin.email,
+        role: 'admin',
+        adminPinHash: hashSecret(admin.adminPin, 'pin'),
+      });
+      console.log(
+        `${adminResult === 'inserted' ? 'Created' : 'Updated'} admin ${admin.username}`,
+      );
+    }
+
+    for (const c of customers) {
+      const userResult = await upsertUser(conn, {
+        id: c.userId,
+        username: c.username,
+        passwordHash: hashSecret(defaultPassword, 'password'),
+        fullName: c.fullName,
+        email: c.email,
+        role: 'customer',
+        adminPinHash: null,
+      });
+
+      const userDek = crypto.randomBytes(32);
+      const customerId = await upsertCustomer(conn, c, userDek);
+      const accountResult = await upsertAccount(conn, c, customerId, userDek);
+      await upsertUserKeyMetadata(conn, c.userId, defaultPassword, userDek);
+
+      console.log(
+        `${userResult === 'inserted' ? 'Created' : 'Updated'} customer ${c.username} (${accountResult} account + key metadata)`,
+      );
+    }
+
+    await conn.commit();
+    console.log('Seed completed and aligned with current security schema.');
+  } finally {
+    await conn.close();
   }
-
-  for (const c of customers) {
-    const existingUser = await conn.execute(
-      `SELECT ID FROM USERS WHERE ID = :id`,
-      { id: c.userId },
-    );
-
-    if ((existingUser.rows || []).length > 0) {
-      await conn.execute(
-        `UPDATE USERS
-         SET USERNAME = :username,
-             PASSWORD_HASH = :passwordHash,
-             FULL_NAME = :fullName,
-             EMAIL = :email,
-             ROLE = 'customer',
-             IS_ACTIVE = 1,
-             FORCE_PASSWORD_CHANGE = 0,
-             UPDATED_AT = SYSTIMESTAMP
-         WHERE ID = :id`,
-        {
-          id: c.userId,
-          username: c.username,
-          passwordHash: userPasswordHash,
-          fullName: c.fullName,
-          email: c.email,
-        },
-      );
-    } else {
-      await conn.execute(
-        `INSERT INTO USERS (
-            ID, USERNAME, PASSWORD_HASH, FULL_NAME, EMAIL, ROLE, IS_ACTIVE, FORCE_PASSWORD_CHANGE
-         ) VALUES (
-            :id, :username, :passwordHash, :fullName, :email, 'customer', 1, 0
-         )`,
-        {
-          id: c.userId,
-          username: c.username,
-          passwordHash: userPasswordHash,
-          fullName: c.fullName,
-          email: c.email,
-        },
-      );
-    }
-
-    const existingCustomer = await conn.execute(
-      `SELECT ID FROM CUSTOMERS WHERE USER_ID = :userId`,
-      { userId: c.userId },
-    );
-
-    let custId;
-    if ((existingCustomer.rows || []).length > 0) {
-      custId = existingCustomer.rows[0][0];
-      console.log(
-        `ℹ️  Customer đã tồn tại cho ${c.userId}, cập nhật hồ sơ + tài khoản`,
-      );
-
-      await conn.execute(
-        `UPDATE CUSTOMERS
-         SET FULL_NAME = :fullName,
-             EMAIL = :email,
-             PHONE = :phone,
-             CCCD = :cccd,
-             DATE_OF_BIRTH = :dob,
-             ADDRESS = :address,
-             PIN_HASH = :pinHash,
-             UPDATED_AT = SYSTIMESTAMP
-         WHERE ID = :id`,
-        {
-          id: custId,
-          fullName: c.fullName,
-          email: c.email,
-          phone: { val: encrypt(c.phone), type: oracledb.BUFFER },
-          cccd: { val: encrypt(c.cccd), type: oracledb.BUFFER },
-          dob: { val: encrypt(c.dob), type: oracledb.BUFFER },
-          address: { val: encrypt(c.address), type: oracledb.BUFFER },
-          pinHash,
-        },
-      );
-    } else {
-      custId = `CUST-${crypto.randomBytes(8).toString('hex').toUpperCase()}`;
-
-      await conn.execute(
-        `INSERT INTO CUSTOMERS (ID, USER_ID, FULL_NAME, EMAIL, PHONE, CCCD, DATE_OF_BIRTH, ADDRESS, PIN_HASH)
-         VALUES (:id, :userId, :fullName, :email, :phone, :cccd, :dob, :address, :pinHash)`,
-        {
-          id: custId,
-          userId: c.userId,
-          fullName: c.fullName,
-          email: c.email,
-          phone: { val: encrypt(c.phone), type: oracledb.BUFFER },
-          cccd: { val: encrypt(c.cccd), type: oracledb.BUFFER },
-          dob: { val: encrypt(c.dob), type: oracledb.BUFFER },
-          address: { val: encrypt(c.address), type: oracledb.BUFFER },
-          pinHash,
-        },
-      );
-    }
-
-    const existingAccount = await conn.execute(
-      `SELECT ID FROM ACCOUNTS WHERE CUSTOMER_ID = :custId`,
-      { custId },
-    );
-
-    if ((existingAccount.rows || []).length > 0) {
-      const accId = existingAccount.rows[0][0];
-      const accNumHash = hashAccountNumber(c.accountNumber);
-      const encAccNum = encrypt(c.accountNumber);
-      await conn.execute(
-        `UPDATE ACCOUNTS
-         SET ACCOUNT_NUMBER = :accNum,
-             ACCOUNT_NUMBER_HASH = :accHash,
-             ACCOUNT_TYPE = 'saving',
-             BALANCE = :balance,
-             IS_ACTIVE = 1
-         WHERE ID = :id`,
-        {
-          id: accId,
-          accNum: { val: encAccNum, type: oracledb.BUFFER },
-          accHash: accNumHash,
-          balance: { val: encrypt(c.balance), type: oracledb.BUFFER },
-        },
-      );
-      console.log(
-        `♻️  Updated customer: ${c.fullName} (account: ${c.accountNumber})`,
-      );
-    } else {
-      const accNumHash = hashAccountNumber(c.accountNumber);
-      const encAccNum = encrypt(c.accountNumber);
-      await conn.execute(
-        `INSERT INTO ACCOUNTS (ID, CUSTOMER_ID, ACCOUNT_NUMBER, ACCOUNT_NUMBER_HASH, ACCOUNT_TYPE, BALANCE)
-         VALUES (:id, :custId, :accNum, :accHash, 'saving', :balance)`,
-        {
-          id: `ACC-${crypto.randomBytes(8).toString('hex').toUpperCase()}`,
-          custId,
-          accNum: { val: encAccNum, type: oracledb.BUFFER },
-          accHash: accNumHash,
-          balance: { val: encrypt(c.balance), type: oracledb.BUFFER },
-        },
-      );
-      console.log(
-        `✅ Created customer: ${c.fullName} (account: ${c.accountNumber})`,
-      );
-    }
-  }
-
-  await conn.commit();
-  await conn.close();
-  console.log('🎉 Seed hoàn thành!');
 }
 
 seed().catch((err) => {
-  console.error('❌ Seed thất bại:', err.message);
+  console.error('Seed failed:', err.message || err);
   process.exit(1);
 });

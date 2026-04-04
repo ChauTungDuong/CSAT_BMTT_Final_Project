@@ -44,6 +44,21 @@ export class Pbkdf2Service {
     return crypto.timingSafeEqual(actual, expected);
   }
 
+  deriveKey(
+    secret: string,
+    saltHex: string,
+    iterations: number,
+    keyLength: number,
+  ): Buffer {
+    const salt = Buffer.from(saltHex, 'hex');
+    return this.pbkdf2(secret, salt, iterations, keyLength);
+  }
+
+  hmacHex(message: string, key: Buffer): string {
+    const digest = this.hmacSha256(key, Buffer.from(message, 'utf8'));
+    return Buffer.from(digest).toString('hex');
+  }
+
   private pbkdf2(
     secret: string,
     salt: Buffer,

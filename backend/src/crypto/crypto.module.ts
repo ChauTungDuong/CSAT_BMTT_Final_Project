@@ -1,38 +1,44 @@
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { AesService } from './services/aes.service';
 import { AccountCryptoService } from './services/account-crypto.service';
-import { CryptoLogService } from './services/crypto-log.service';
-import { CryptoGateway } from './crypto.gateway';
 import { CryptoTraceContextService } from './services/crypto-trace-context.service';
-import { CryptoController } from './crypto.controller';
 import { Pbkdf2Service } from './services/pbkdf2.service';
 import { RsaTransportService } from './services/rsa-transport.service';
+import { UserKeyDerivationService } from './services/user-key-derivation.service';
+import { UserDekRuntimeService } from './services/user-dek-runtime.service';
+import { UserKeyMetadataService } from './services/user-key-metadata.service';
+import { UserKeyMetadata } from '../modules/auth/entities/user-key-metadata.entity';
 import { TransportController } from './transport.controller';
 import { TransportEnvelopeInterceptor } from './interceptors/transport-envelope.interceptor';
 
 @Module({
+  imports: [TypeOrmModule.forFeature([UserKeyMetadata])],
   providers: [
     AesService,
     AccountCryptoService,
-    CryptoLogService,
-    CryptoGateway,
     CryptoTraceContextService,
     Pbkdf2Service,
     RsaTransportService,
+    UserKeyDerivationService,
+    UserDekRuntimeService,
+    UserKeyMetadataService,
     {
       provide: APP_INTERCEPTOR,
       useClass: TransportEnvelopeInterceptor,
     },
   ],
-  controllers: [CryptoController, TransportController],
+  controllers: [TransportController],
   exports: [
     AesService,
     AccountCryptoService,
-    CryptoLogService,
     CryptoTraceContextService,
     Pbkdf2Service,
     RsaTransportService,
+    UserKeyDerivationService,
+    UserDekRuntimeService,
+    UserKeyMetadataService,
   ],
 })
 export class CryptoModule {}

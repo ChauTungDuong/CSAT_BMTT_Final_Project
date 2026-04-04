@@ -3,9 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import * as cookieParser from 'cookie-parser';
-import { randomUUID } from 'crypto';
 import { AppModule } from './app.module';
-import { CryptoTraceContextService } from './crypto/services/crypto-trace-context.service';
 
 async function bootstrap() {
   // TLS is terminated at the nginx reverse proxy — backend uses plain HTTP internally
@@ -17,22 +15,6 @@ async function bootstrap() {
 
   // Cookie parser
   app.use(cookieParser());
-
-  const traceContext = app.get(CryptoTraceContextService);
-
-  app.use((req: any, _res: any, next: () => void) => {
-    const actionId = String(req.headers['x-action-id'] || randomUUID());
-    const actionName = `${req.method} ${req.originalUrl || req.url}`;
-
-    // Setup crypto trace context with userId from JWT if available
-    traceContext.runWithContext(actionId, actionName, () => {
-      const userId = req.user?.sub;
-      if (userId) {
-        traceContext.setUserId(userId);
-      }
-      return next();
-    });
-  });
 
   // Global prefix
   app.setGlobalPrefix('api');
@@ -47,12 +29,7 @@ async function bootstrap() {
   );
 
   // CORS
-  const corsOrigins = [
-    process.env.FRONTEND_URL || 'http://localhost:3002',
-    ...(process.env.ENABLE_CRYPTO_MONITOR === 'true' && process.env.MONITOR_URL
-      ? [process.env.MONITOR_URL]
-      : []),
-  ];
+  const corsOrigins = [process.env.FRONTEND_URL || 'http://localhost:3002'];
 
   app.enableCors({
     origin: corsOrigins,

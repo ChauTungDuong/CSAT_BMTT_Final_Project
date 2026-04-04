@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as crypto from 'crypto';
 import { AesService } from './aes.service';
+import { Pbkdf2Service } from './pbkdf2.service';
 
 /**
  * Service để mã hóa và hash số tài khoản.
@@ -16,6 +16,7 @@ export class AccountCryptoService {
   constructor(
     private readonly config: ConfigService,
     private readonly aes: AesService,
+    private readonly pbkdf2: Pbkdf2Service,
   ) {
     // Dùng AES master key để derive HMAC key (hoặc có thể generate riêng)
     const keyHex = config.getOrThrow<string>('AES_MASTER_KEY');
@@ -29,11 +30,7 @@ export class AccountCryptoService {
    */
   hashAccountNumber(accountNumber: string): string {
     const normalized = accountNumber.trim();
-    const hash = crypto
-      .createHmac('sha256', this.hmacKey)
-      .update(normalized)
-      .digest('hex');
-    return hash;
+    return this.pbkdf2.hmacHex(normalized, this.hmacKey);
   }
 
   /**
@@ -46,6 +43,11 @@ export class AccountCryptoService {
     return await this.aes.encrypt(normalized);
   }
 
+  async encryptAccountNumberForUser(userId: string, accountNumber: string) {
+    const normalized = accountNumber.trim();
+    return await this.aes.encryptForUser(userId, normalized);
+  }
+
   /**
    * Giải mã số tài khoản
    * @param encrypted EncryptedCell object (dạng từ DB)
@@ -53,5 +55,12 @@ export class AccountCryptoService {
    */
   async decryptAccountNumber(encrypted: any): Promise<string | null> {
     return await this.aes.decrypt(encrypted);
+  }
+
+  async decryptAccountNumberForUser(
+    userId: string,
+    encrypted: any,
+  ): Promise<string | null> {
+    return await this.aes.decryptForUser(userId, encrypted);
   }
 }

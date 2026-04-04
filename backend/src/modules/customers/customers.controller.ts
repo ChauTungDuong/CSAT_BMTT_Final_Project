@@ -9,6 +9,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
   NotFoundException,
   UnauthorizedException,
   Query,
@@ -168,12 +169,8 @@ export class CustomersController {
   @Get(':id')
   @Roles(Role.ADMIN)
   async getCustomerById(@Param('id') id: string, @Req() req: any) {
-    return this.service.getProfile(
-      id,
-      req.user.sub,
-      req.user.role as Role,
-      req.ip,
-      undefined,
+    throw new ForbiddenException(
+      'Tạm thời ẩn chức năng admin xem chi tiết người dùng theo chính sách bảo mật',
     );
   }
 }

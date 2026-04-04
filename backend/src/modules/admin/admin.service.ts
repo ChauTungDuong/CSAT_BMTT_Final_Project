@@ -9,11 +9,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../auth/entities/user.entity';
 import { Customer } from '../customers/entities/customer.entity';
-import { Account } from '../accounts/entities/account.entity';
 import { AuditService } from '../../audit/audit.service';
 import { MaskingEngine } from '../../masking/masking.engine';
-import { AesService } from '../../crypto/services/aes.service';
-import { AccountCryptoService } from '../../crypto/services/account-crypto.service';
 import { Role } from '../../common/types/role.enum';
 import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
 import { MailService } from '../customers/mail.service';
@@ -34,11 +31,8 @@ export class AdminService {
   constructor(
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
-    @InjectRepository(Account) private accountRepo: Repository<Account>,
     private audit: AuditService,
     private masking: MaskingEngine,
-    private aes: AesService,
-    private accountCrypto: AccountCryptoService,
     private pbkdf2: Pbkdf2Service,
     private mailService: MailService,
   ) {}
@@ -47,6 +41,14 @@ export class AdminService {
     const safePage = Number.isFinite(page) && page > 0 ? page : 1;
     const safeLimit = Number.isFinite(limit) && limit > 0 ? limit : 20;
     const keyword = (q || '').trim().toLowerCase();
+    const fullyMasked = {
+      email: this.masking.mask('', 'email', Role.ADMIN),
+      phone: this.masking.mask('', 'phone', Role.ADMIN),
+      cccd: this.masking.mask('', 'cccd', Role.ADMIN),
+      accountNumber: this.masking.mask('', 'account_number', Role.ADMIN),
+      dateOfBirth: this.masking.mask('', 'date_of_birth', Role.ADMIN),
+      address: this.masking.mask('', 'address', Role.ADMIN),
+    };
 
     const users = await this.userRepo.find({
       order: { createdAt: 'DESC' },
@@ -55,74 +57,18 @@ export class AdminService {
     // Join với customers để lấy thêm thông tin
     const items = await Promise.all(
       users.map(async (u) => {
-        const customer = await this.customerRepo.findOne({
-          where: { userId: u.id },
-        });
-
-        const account = customer
-          ? await this.accountRepo.findOne({
-              where: { customerId: customer.id, isActive: 1 },
-              order: { createdAt: 'DESC' },
-            })
-          : null;
-
-        const decryptAndMask = async (
-          value: Buffer | null | undefined,
-          field: 'phone' | 'cccd' | 'date_of_birth' | 'address',
-        ): Promise<string | null> => {
-          if (!value) return null;
-          try {
-            const decrypted = await this.aes.decrypt(
-              this.aes.deserialize(value),
-            );
-            return this.masking.mask(decrypted, field, Role.ADMIN);
-          } catch {
-            return null;
-          }
-        };
-
-        const [phone, cccd, dateOfBirth, address] = await Promise.all([
-          decryptAndMask(customer?.phone, 'phone'),
-          decryptAndMask(customer?.cccd, 'cccd'),
-          decryptAndMask(customer?.dateOfBirth, 'date_of_birth'),
-          decryptAndMask(customer?.address, 'address'),
-        ]);
-
-        // Decrypt account number for search and masking
-        let plainAccountNumber: string | null = null;
-        if (account?.accountNumber) {
-          try {
-            plainAccountNumber = await this.accountCrypto.decryptAccountNumber(
-              this.aes.deserialize(account.accountNumber),
-            );
-          } catch {
-            plainAccountNumber = null;
-          }
-        }
-
         return {
           id: u.id,
           username: u.username,
           role: u.role,
           isActive: !!u.isActive,
-          fullName: customer?.fullName || u.fullName || null,
-          email: customer?.email
-            ? this.masking.mask(customer.email, 'email', Role.ADMIN)
-            : u.email
-              ? this.masking.mask(u.email, 'email', Role.ADMIN)
-              : null,
-          phone,
-          cccd,
-          dateOfBirth,
-          address,
-          accountNumber: plainAccountNumber
-            ? this.masking.mask(
-                plainAccountNumber,
-                'account_number',
-                Role.ADMIN,
-              )
-            : null,
-          searchAccountNumber: plainAccountNumber || null,
+          fullName: '***',
+          email: fullyMasked.email,
+          phone: fullyMasked.phone,
+          cccd: fullyMasked.cccd,
+          dateOfBirth: fullyMasked.dateOfBirth,
+          address: fullyMasked.address,
+          accountNumber: fullyMasked.accountNumber,
           createdAt: u.createdAt,
         };
       }),
@@ -131,10 +77,8 @@ export class AdminService {
     const filteredItems = keyword
       ? items.filter((item) => {
           const usernameMatch = item.username?.toLowerCase().includes(keyword);
-          const accountMatch = item.searchAccountNumber
-            ?.toLowerCase()
-            .includes(keyword);
-          return !!(usernameMatch || accountMatch);
+          const userIdMatch = item.id?.toLowerCase().includes(keyword);
+          return !!(usernameMatch || userIdMatch);
         })
       : items;
 
@@ -143,7 +87,7 @@ export class AdminService {
     const pagedItems = filteredItems.slice(start, start + safeLimit);
 
     return {
-      items: pagedItems.map(({ searchAccountNumber, ...item }) => item),
+      items: pagedItems,
       total,
       page: safePage,
       limit: safeLimit,

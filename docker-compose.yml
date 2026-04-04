@@ -71,21 +71,5 @@ services:
       - backend
       - frontend
 
-  monitor:
-    build:
-      context: ./monitor
-      dockerfile: Dockerfile
-    container_name: bank-monitor
-    profiles:
-      - monitor
-    restart: unless-stopped
-    ports:
-      - "${MONITOR_BIND_HOST:-127.0.0.1}:${MONITOR_HOST_PORT:-13003}:80"
-    environment:
-      - VITE_BACKEND_URL=http://bank-backend:3000
-      - VITE_MONITOR_TOKEN=${CRYPTO_MONITOR_TOKEN:-}
-    depends_on:
-      - backend
-
 volumes:
   oracle_data:

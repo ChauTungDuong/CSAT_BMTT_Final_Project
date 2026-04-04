@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "../../api/client";
 
@@ -34,7 +34,7 @@ const roleLabel: Record<string, string> = {
   admin: "Quản trị viên",
 };
 
-type ActionType = "toggle-status" | "reset-password" | "view-details";
+type ActionType = "toggle-status" | "reset-password";
 
 interface ActionModalState {
   type: ActionType;
@@ -70,13 +70,6 @@ const actionConfig: Record<
     description:
       "Hệ thống sẽ tạo mật khẩu tạm thời, gửi email và buộc người dùng đổi mật khẩu ở lần đăng nhập kế tiếp.",
   },
-  "view-details": {
-    title: "Mở phiên xem thông tin nhạy cảm",
-    reasonLabel: "Lý do xem thông tin",
-    submitLabel: "Mở phiên xem",
-    description:
-      "Phiên xem chỉ tồn tại 2 phút. Toàn bộ thao tác mở/đóng phiên đều được ghi audit.",
-  },
 };
 
 function parseApiMessage(err: any, fallback: string) {
@@ -93,17 +86,6 @@ export function AdminDashboard() {
   const [reason, setReason] = useState("");
   const [actionError, setActionError] = useState("");
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
-  const [viewDetails, setViewDetails] = useState<{
-    userId: string;
-    username: string;
-    email: string;
-    phone: string;
-    cccd: string;
-    dateOfBirth: string;
-    address: string;
-    viewToken: string;
-    expiresAt: string;
-  } | null>(null);
 
   const { data: stats } = useQuery<SystemStats>({
     queryKey: ["admin-stats"],
@@ -158,58 +140,12 @@ export function AdminDashboard() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-users"] }),
   });
 
-  const openSensitiveView = useMutation({
-    mutationFn: ({
-      userId,
-      adminPin,
-      reason,
-    }: {
-      userId: string;
-      adminPin: string;
-      reason: string;
-    }) => api.post(`/admin/users/${userId}/view-details`, { adminPin, reason }),
-  });
-
-  const isActionSubmitting =
-    toggleStatus.isPending ||
-    resetPassword.isPending ||
-    openSensitiveView.isPending;
+  const isActionSubmitting = toggleStatus.isPending || resetPassword.isPending;
 
   const activeActionConfig = useMemo(
     () => (actionModal ? actionConfig[actionModal.type] : null),
     [actionModal],
   );
-
-  useEffect(() => {
-    if (!viewDetails) return;
-    const remain = new Date(viewDetails.expiresAt).getTime() - Date.now();
-    if (remain <= 0) {
-      setViewDetails(null);
-      return;
-    }
-
-    const timer = setTimeout(() => {
-      api
-        .post("/admin/view-sessions/close", {
-          viewToken: viewDetails.viewToken,
-        })
-        .catch(() => undefined);
-      setViewDetails(null);
-    }, remain);
-
-    return () => clearTimeout(timer);
-  }, [viewDetails]);
-
-  const closeViewModal = async () => {
-    if (viewDetails?.viewToken) {
-      await api
-        .post("/admin/view-sessions/close", {
-          viewToken: viewDetails.viewToken,
-        })
-        .catch(() => undefined);
-    }
-    setViewDetails(null);
-  };
 
   const openActionModal = (payload: ActionModalState) => {
     setFeedback(null);
@@ -272,26 +208,6 @@ export function AdminDashboard() {
           message:
             res?.data?.message ??
             "Đã reset mật khẩu và gửi mật khẩu tạm thời qua email người dùng.",
-        });
-      }
-
-      if (actionModal.type === "view-details") {
-        const res = await openSensitiveView.mutateAsync({
-          userId: actionModal.user.id,
-          adminPin,
-          reason: reason.trim(),
-        });
-
-        setViewDetails({
-          userId: actionModal.user.id,
-          username: actionModal.user.username,
-          email: res.data.details.email,
-          phone: res.data.details.phone,
-          cccd: res.data.details.cccd,
-          dateOfBirth: res.data.details.dateOfBirth,
-          address: res.data.details.address,
-          viewToken: res.data.viewToken,
-          expiresAt: res.data.expiresAt,
         });
       }
 
@@ -364,7 +280,7 @@ export function AdminDashboard() {
                 type="text"
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
-                placeholder="Tìm theo tên đăng nhập hoặc số tài khoản"
+                placeholder="Tìm theo tên đăng nhập hoặc mã người dùng"
                 className="w-full md:w-[420px] rounded-lg border border-gray-300 bg-white px-3 py-2 text-base outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -582,71 +498,6 @@ export function AdminDashboard() {
                   : activeActionConfig.submitLabel}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {viewDetails && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-gray-200 overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-b">
-              <h3 className="text-lg font-semibold text-gray-800">
-                Hồ sơ chi tiết người dùng: {viewDetails.username}
-              </h3>
-              <button
-                onClick={closeViewModal}
-                className="text-sm text-gray-500 hover:text-gray-700"
-              >
-                Đóng
-              </button>
-            </div>
-
-            <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div className="rounded-xl border border-slate-200 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Email
-                </p>
-                <p className="mt-1 font-medium text-slate-800 break-all">
-                  {viewDetails.email}
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-200 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Số điện thoại
-                </p>
-                <p className="mt-1 font-medium text-slate-800">
-                  {viewDetails.phone}
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-200 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  CCCD
-                </p>
-                <p className="mt-1 font-medium text-slate-800">
-                  {viewDetails.cccd}
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-200 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Ngày sinh
-                </p>
-                <p className="mt-1 font-medium text-slate-800">
-                  {viewDetails.dateOfBirth}
-                </p>
-              </div>
-              <div className="rounded-xl border border-slate-200 p-4 md:col-span-2">
-                <p className="text-xs uppercase tracking-wide text-slate-500">
-                  Địa chỉ
-                </p>
-                <p className="mt-1 font-medium text-slate-800">
-                  {viewDetails.address}
-                </p>
-              </div>
-            </div>
-
-            <p className="px-6 pb-6 text-xs text-amber-600">
-              Phiên xem tự đóng sau 2 phút hoặc khi bạn bấm Đóng.
-            </p>
           </div>
         </div>
       )}

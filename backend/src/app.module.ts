@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -12,6 +13,7 @@ import { AccountsModule } from './modules/accounts/accounts.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { CardsModule } from './modules/cards/cards.module';
+import { CryptoTraceInterceptor } from './common/interceptors/crypto-trace.interceptor';
 
 const globalAny = globalThis as any;
 if (!globalAny.crypto || typeof globalAny.crypto.randomUUID !== 'function') {
@@ -97,6 +99,12 @@ function buildOracleConfig(config: ConfigService) {
     TransactionsModule,
     AdminModule,
     CardsModule,
+  ],
+  providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: CryptoTraceInterceptor,
+    },
   ],
 })
 export class AppModule {}

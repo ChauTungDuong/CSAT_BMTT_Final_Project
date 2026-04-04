@@ -7,8 +7,8 @@ import {
   ICryptoService,
 } from '../interfaces/crypto.interface';
 import { encryptGCM, decryptGCM } from '../aes-gcm';
-import { CryptoLogService } from './crypto-log.service';
 import { CryptoTraceContextService } from './crypto-trace-context.service';
+import { UserDekRuntimeService } from './user-dek-runtime.service';
 
 @Injectable()
 export class AesService implements ICryptoService {
@@ -17,8 +17,8 @@ export class AesService implements ICryptoService {
 
   constructor(
     private readonly config: ConfigService,
-    private readonly cryptoLog: CryptoLogService,
     private readonly traceContext: CryptoTraceContextService,
+    private readonly userDekRuntime: UserDekRuntimeService,
   ) {
     const keyHex = config.getOrThrow<string>('AES_MASTER_KEY');
 
@@ -29,50 +29,32 @@ export class AesService implements ICryptoService {
   }
 
   async encrypt(plaintext: string): Promise<CellValue> {
-    const actionId = this.traceContext.getActionId() ?? crypto.randomUUID();
-    const actionName = this.traceContext.getActionName() ?? 'SYSTEM';
-    const userId = this.traceContext.getUserId();
-    const keySnippet = this.masterKey.slice(0, 4).toString('hex') + '...';
+    const traceUserId = this.traceContext.getUserId();
+    if (traceUserId) {
+      return this.encryptForUser(traceUserId, plaintext);
+    }
+    return this.encryptWithKey(this.masterKey, plaintext);
+  }
 
+  async encryptForUser(userId: string, plaintext: string): Promise<CellValue> {
+    const key = this.resolveKeyForUser(userId);
+    return this.encryptWithKey(key, plaintext);
+  }
+
+  private async encryptWithKey(
+    key: Buffer,
+    plaintext: string,
+  ): Promise<CellValue> {
     // IV ngẫu nhiên mỗi lần — BẮT BUỘC 12 bytes cho GCM
     const iv = crypto.randomBytes(12);
     const ivB64 = iv.toString('base64');
 
-    // Log: input plaintext
-    this.cryptoLog.addLog({
-      actionId,
-      userId,
-      actionName,
-      operation: 'encrypt',
-      layer: 'AES-256',
-      input: plaintext,
-      output: plaintext,
-      iv: ivB64,
-      keySnippet,
-      status: 'success',
-    });
-
     // Sử dụng AES-GCM TypeScript thuần túy
     const plainBytes = Buffer.from(plaintext, 'utf8');
-    const { ciphertext, authTag } = encryptGCM(this.masterKey, iv, plainBytes);
+    const { ciphertext, authTag } = encryptGCM(key, iv, plainBytes);
 
     const payloadB64 = Buffer.from(ciphertext).toString('base64');
     const tagB64 = Buffer.from(authTag).toString('base64');
-
-    // Log: AES encryption output
-    this.cryptoLog.addLog({
-      actionId,
-      userId,
-      actionName,
-      operation: 'encrypt',
-      layer: 'AES-256',
-      input: plaintext,
-      output: payloadB64,
-      iv: ivB64,
-      tag: tagB64,
-      keySnippet,
-      status: 'success',
-    });
 
     const cell = {
       type: 'encrypted',
@@ -88,32 +70,45 @@ export class AesService implements ICryptoService {
   async decrypt(cell: CellValue): Promise<string | null> {
     if (cell.type === 'clear') return cell.data;
 
-    const actionId = this.traceContext.getActionId() ?? crypto.randomUUID();
-    const actionName = this.traceContext.getActionName() ?? 'SYSTEM';
-    const userId = this.traceContext.getUserId();
-    const keySnippet = this.masterKey.slice(0, 4).toString('hex') + '...';
+    const traceUserId = this.traceContext.getUserId();
+    if (traceUserId) {
+      return this.decryptForUser(traceUserId, cell);
+    }
 
+    return this.decryptWithKey(this.masterKey, cell, false);
+  }
+
+  async decryptForUser(
+    userId: string,
+    cell: CellValue,
+  ): Promise<string | null> {
+    if (cell.type === 'clear') return cell.data;
+
+    const userDek = this.userDekRuntime.getUserDek(userId);
+    if (!userDek) {
+      return this.decryptWithKey(this.masterKey, cell, false);
+    }
+
+    const byUserKey = await this.decryptWithKey(userDek, cell, true);
+    if (byUserKey !== null) {
+      return byUserKey;
+    }
+
+    // Migration fallback for legacy data encrypted by global key.
+    return this.decryptWithKey(this.masterKey, cell, false);
+  }
+
+  private async decryptWithKey(
+    key: Buffer,
+    cell: CellValue,
+    suppressErrorLog: boolean,
+  ): Promise<string | null> {
     const enc = cell as EncryptedCell;
-
-    // Log: input encrypted
-    this.cryptoLog.addLog({
-      actionId,
-      userId,
-      actionName,
-      operation: 'decrypt',
-      layer: 'AES-256',
-      input: enc.payload,
-      output: enc.payload,
-      iv: enc.iv,
-      tag: enc.tag,
-      keySnippet,
-      status: 'success',
-    });
 
     // Decrypt bằng AES-GCM TypeScript thuần túy
     try {
       const plaintextBytes = decryptGCM(
-        this.masterKey,
+        key,
         Buffer.from(enc.iv, 'base64'),
         Buffer.from(enc.payload, 'base64'),
         Buffer.from(enc.tag, 'base64'),
@@ -121,39 +116,18 @@ export class AesService implements ICryptoService {
 
       const plaintext = Buffer.from(plaintextBytes).toString('utf8');
 
-      // Log: decryption output
-      this.cryptoLog.addLog({
-        actionId,
-        userId,
-        actionName,
-        operation: 'decrypt',
-        layer: 'AES-256',
-        input: enc.payload,
-        output: plaintext,
-        iv: enc.iv,
-        tag: enc.tag,
-        keySnippet,
-        status: 'success',
-      });
-
       return plaintext;
     } catch (err) {
-      this.logger.error('AES-GCM decrypt thất bại — auth tag không khớp');
-      this.cryptoLog.addLog({
-        actionId,
-        userId,
-        actionName,
-        operation: 'decrypt',
-        layer: 'AES-256',
-        input: enc.payload,
-        output: '',
-        iv: enc.iv,
-        tag: enc.tag,
-        keySnippet,
-        status: 'failure',
-      });
+      if (!suppressErrorLog) {
+        this.logger.error('AES-GCM decrypt thất bại — auth tag không khớp');
+      }
       return null;
     }
+  }
+
+  private resolveKeyForUser(userId: string): Buffer {
+    const userDek = this.userDekRuntime.getUserDek(userId);
+    return userDek ?? this.masterKey;
   }
 
   serialize(cell: CellValue): Buffer {

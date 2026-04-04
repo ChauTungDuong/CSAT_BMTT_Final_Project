@@ -5,6 +5,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -18,10 +19,16 @@ import { AuditService } from '../../audit/audit.service';
 import { AesService } from '../../crypto/services/aes.service';
 import { AccountCryptoService } from '../../crypto/services/account-crypto.service';
 import { Pbkdf2Service } from '../../crypto/services/pbkdf2.service';
+import { decryptGCM, encryptGCM } from '../../crypto/aes-gcm';
+import { UserDekRuntimeService } from '../../crypto/services/user-dek-runtime.service';
+import { UserKeyDerivationService } from '../../crypto/services/user-key-derivation.service';
+import { UserKeyMetadataService } from '../../crypto/services/user-key-metadata.service';
 import { MailService } from '../customers/mail.service';
 
 @Injectable()
 export class AuthService {
+  private readonly recoveryWrapKey: Buffer | null;
+
   private readonly forgotPasswordOtps = new Map<
     string,
     {
@@ -36,13 +43,23 @@ export class AuthService {
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Customer) private customerRepo: Repository<Customer>,
     @InjectRepository(Account) private accountRepo: Repository<Account>,
+    private config: ConfigService,
     private jwtService: JwtService,
     private auditService: AuditService,
     private aesService: AesService,
     private accountCrypto: AccountCryptoService,
     private pbkdf2: Pbkdf2Service,
+    private userDekRuntime: UserDekRuntimeService,
+    private userKeyDerivation: UserKeyDerivationService,
+    private userKeyMetadata: UserKeyMetadataService,
     private mailService: MailService,
-  ) {}
+  ) {
+    const recoveryKeyHex = (this.config.get<string>('DEK_RECOVERY_KEY') || '')
+      .trim()
+      .toLowerCase();
+    this.recoveryWrapKey =
+      recoveryKeyHex.length === 64 ? Buffer.from(recoveryKeyHex, 'hex') : null;
+  }
 
   async register(dto: RegisterDto, ip: string) {
     const exists = await this.userRepo.findOne({
@@ -90,11 +107,13 @@ export class AuthService {
     });
     await this.userRepo.save(user);
 
-    const encPhone = await this.aesService.encrypt(dto.phone);
-    const encCccd = await this.aesService.encrypt(dto.cccd);
+    await this.initializeFreshUserDek(userId, dto.password, 'active');
+
+    const encPhone = await this.aesService.encryptForUser(userId, dto.phone);
+    const encCccd = await this.aesService.encryptForUser(userId, dto.cccd);
     const normalizedDob = this.normalizeDateOfBirth(dto.dateOfBirth);
-    const encDob = await this.aesService.encrypt(normalizedDob);
-    const encAddr = await this.aesService.encrypt(dto.address);
+    const encDob = await this.aesService.encryptForUser(userId, normalizedDob);
+    const encAddr = await this.aesService.encryptForUser(userId, dto.address);
 
     const customer = this.customerRepo.create({
       id: customerId,
@@ -109,10 +128,12 @@ export class AuthService {
     await this.customerRepo.save(customer);
 
     // Encrypt account number and store with hash
-    const encAccountNumber = await this.accountCrypto.encryptAccountNumber(
-      dto.accountNumber,
-    );
-    const encBalance = await this.aesService.encrypt('0');
+    const encAccountNumber =
+      await this.accountCrypto.encryptAccountNumberForUser(
+        userId,
+        dto.accountNumber,
+      );
+    const encBalance = await this.aesService.encryptForUser(userId, '0');
     const account = this.accountRepo.create({
       id: accountId,
       customerId: customerId,
@@ -196,6 +217,10 @@ export class AuthService {
         `Username: ${dto.username}`,
       );
       throw new UnauthorizedException('Tên đăng nhập hoặc mật khẩu không đúng');
+    }
+
+    if (user.role === 'customer') {
+      await this.ensureUserDekRuntime(user.id, dto.password);
     }
 
     const token = this.jwtService.sign({
@@ -402,9 +427,13 @@ export class AuthService {
       throw new BadRequestException('Mật khẩu mới phải khác mật khẩu hiện tại');
     }
 
+    await this.recoverAndRewrapUserDek(user.id, newPassword);
+
     user.passwordHash = this.pbkdf2.hashSecret(newPassword, 'password');
     user.forcePasswordChange = 0;
     await this.userRepo.save(user);
+
+    this.userDekRuntime.clearUserDek(user.id);
     this.forgotPasswordOtps.delete(user.id);
 
     await this.auditService.log(
@@ -446,9 +475,17 @@ export class AuthService {
       throw new UnauthorizedException('Mật khẩu hiện tại không đúng');
     }
 
+    if (this.pbkdf2.verifySecret(newPassword, user.passwordHash)) {
+      throw new BadRequestException('Mật khẩu mới phải khác mật khẩu hiện tại');
+    }
+
+    await this.rewrapUserDek(userId, currentPassword, newPassword);
+
     user.passwordHash = this.pbkdf2.hashSecret(newPassword, 'password');
     user.forcePasswordChange = 0;
     await this.userRepo.save(user);
+
+    this.userDekRuntime.clearUserDek(userId);
 
     await this.auditService.log(
       'CHANGE_PASSWORD',
@@ -459,6 +496,259 @@ export class AuthService {
     );
 
     return { message: 'Đổi mật khẩu thành công' };
+  }
+
+  private async ensureUserDekRuntime(
+    userId: string,
+    password: string,
+  ): Promise<void> {
+    let metadata = await this.userKeyMetadata.findByUserId(userId);
+
+    if (!metadata) {
+      await this.initializeFreshUserDek(userId, password, 'legacy');
+      return;
+    }
+
+    const dek = this.unwrapDekWithPassword(
+      metadata.wrappedDekB64,
+      password,
+      metadata.kdfSaltHex,
+      metadata.kdfIterations,
+    );
+
+    if (!dek) {
+      // Password reset flow may make old wrapped DEK unusable.
+      await this.initializeFreshUserDek(userId, password, 'legacy');
+      metadata = await this.userKeyMetadata.findByUserId(userId);
+      if (!metadata) return;
+      const refreshedDek = this.unwrapDekWithPassword(
+        metadata.wrappedDekB64,
+        password,
+        metadata.kdfSaltHex,
+        metadata.kdfIterations,
+      );
+      if (!refreshedDek) return;
+      this.userDekRuntime.setUserDek(userId, refreshedDek);
+      return;
+    }
+
+    this.userDekRuntime.setUserDek(userId, dek);
+  }
+
+  private async initializeFreshUserDek(
+    userId: string,
+    password: string,
+    migrationState: string,
+  ): Promise<void> {
+    const kdfIterations = 310000;
+    const kdfSaltHex = this.userKeyDerivation.generateSaltHex(16);
+    const dek = crypto.randomBytes(32);
+    const wrappedDekB64 = this.wrapDekWithPassword(
+      dek,
+      password,
+      kdfSaltHex,
+      kdfIterations,
+    );
+
+    await this.userKeyMetadata.upsertMetadata({
+      userId,
+      kdfAlgo: 'pbkdf2-sha256',
+      kdfIterations,
+      kdfSaltHex,
+      wrappedDekB64,
+      recoveryWrappedDekB64: this.wrapDekWithRecoveryKey(dek),
+      keyVersion: 1,
+      passwordEpoch: 1,
+      migrationState,
+    });
+
+    this.userDekRuntime.setUserDek(userId, dek);
+  }
+
+  private async rewrapUserDek(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const metadata = await this.userKeyMetadata.findByUserId(userId);
+    if (!metadata) {
+      await this.initializeFreshUserDek(userId, newPassword, 'legacy');
+      return;
+    }
+
+    const currentDek =
+      this.userDekRuntime.getUserDek(userId) ||
+      this.unwrapDekWithPassword(
+        metadata.wrappedDekB64,
+        currentPassword,
+        metadata.kdfSaltHex,
+        metadata.kdfIterations,
+      );
+
+    if (!currentDek) {
+      await this.initializeFreshUserDek(userId, newPassword, 'legacy');
+      return;
+    }
+
+    const newSaltHex = this.userKeyDerivation.generateSaltHex(16);
+    const wrappedDekB64 = this.wrapDekWithPassword(
+      currentDek,
+      newPassword,
+      newSaltHex,
+      metadata.kdfIterations,
+    );
+
+    await this.userKeyMetadata.upsertMetadata({
+      userId,
+      kdfAlgo: metadata.kdfAlgo,
+      kdfIterations: metadata.kdfIterations,
+      kdfSaltHex: newSaltHex,
+      wrappedDekB64,
+      recoveryWrappedDekB64:
+        this.wrapDekWithRecoveryKey(currentDek) ??
+        metadata.recoveryWrappedDekB64,
+      keyVersion: metadata.keyVersion,
+      passwordEpoch: (metadata.passwordEpoch || 1) + 1,
+      migrationState: metadata.migrationState,
+    });
+
+    this.userDekRuntime.setUserDek(userId, currentDek);
+  }
+
+  private async recoverAndRewrapUserDek(
+    userId: string,
+    newPassword: string,
+  ): Promise<void> {
+    const metadata = await this.userKeyMetadata.findByUserId(userId);
+    if (!metadata) {
+      await this.initializeFreshUserDek(userId, newPassword, 'legacy');
+      return;
+    }
+
+    const recoveredDek = this.unwrapDekWithRecoveryKey(
+      metadata.recoveryWrappedDekB64,
+    );
+    if (!recoveredDek) {
+      await this.auditService.log(
+        'FORGOT_PASSWORD_RECOVERY_FALLBACK',
+        userId,
+        userId,
+        'SYSTEM',
+        'Recovery key unavailable or wrapped DEK missing. Generated fresh DEK.',
+      );
+      await this.initializeFreshUserDek(userId, newPassword, 'legacy');
+      return;
+    }
+
+    const newSaltHex = this.userKeyDerivation.generateSaltHex(16);
+    const wrappedDekB64 = this.wrapDekWithPassword(
+      recoveredDek,
+      newPassword,
+      newSaltHex,
+      metadata.kdfIterations,
+    );
+
+    await this.userKeyMetadata.upsertMetadata({
+      userId,
+      kdfAlgo: metadata.kdfAlgo,
+      kdfIterations: metadata.kdfIterations,
+      kdfSaltHex: newSaltHex,
+      wrappedDekB64,
+      recoveryWrappedDekB64:
+        this.wrapDekWithRecoveryKey(recoveredDek) ??
+        metadata.recoveryWrappedDekB64,
+      keyVersion: metadata.keyVersion,
+      passwordEpoch: (metadata.passwordEpoch || 1) + 1,
+      migrationState: metadata.migrationState,
+    });
+
+    this.userDekRuntime.setUserDek(userId, recoveredDek);
+  }
+
+  private wrapDekWithPassword(
+    dek: Buffer,
+    password: string,
+    saltHex: string,
+    iterations: number,
+  ): string {
+    const kek = this.userKeyDerivation.deriveKek(
+      password,
+      saltHex,
+      iterations,
+      32,
+    );
+    const iv = crypto.randomBytes(12);
+    const { ciphertext, authTag } = encryptGCM(kek, iv, dek);
+    return JSON.stringify({
+      iv: Buffer.from(iv).toString('base64'),
+      tag: Buffer.from(authTag).toString('base64'),
+      payload: Buffer.from(ciphertext).toString('base64'),
+    });
+  }
+
+  private unwrapDekWithPassword(
+    wrappedDekB64: string,
+    password: string,
+    saltHex: string,
+    iterations: number,
+  ): Buffer | null {
+    try {
+      const wrapped = JSON.parse(wrappedDekB64) as {
+        iv: string;
+        tag: string;
+        payload: string;
+      };
+
+      const kek = this.userKeyDerivation.deriveKek(
+        password,
+        saltHex,
+        iterations,
+        32,
+      );
+
+      const plain = decryptGCM(
+        kek,
+        Buffer.from(wrapped.iv, 'base64'),
+        Buffer.from(wrapped.payload, 'base64'),
+        Buffer.from(wrapped.tag, 'base64'),
+      );
+      return Buffer.from(plain);
+    } catch {
+      return null;
+    }
+  }
+
+  private wrapDekWithRecoveryKey(dek: Buffer): string | null {
+    if (!this.recoveryWrapKey) return null;
+    const iv = crypto.randomBytes(12);
+    const { ciphertext, authTag } = encryptGCM(this.recoveryWrapKey, iv, dek);
+    return JSON.stringify({
+      iv: Buffer.from(iv).toString('base64'),
+      tag: Buffer.from(authTag).toString('base64'),
+      payload: Buffer.from(ciphertext).toString('base64'),
+    });
+  }
+
+  private unwrapDekWithRecoveryKey(
+    wrappedDekB64?: string | null,
+  ): Buffer | null {
+    if (!this.recoveryWrapKey || !wrappedDekB64) return null;
+    try {
+      const wrapped = JSON.parse(wrappedDekB64) as {
+        iv: string;
+        tag: string;
+        payload: string;
+      };
+      const plain = decryptGCM(
+        this.recoveryWrapKey,
+        Buffer.from(wrapped.iv, 'base64'),
+        Buffer.from(wrapped.payload, 'base64'),
+        Buffer.from(wrapped.tag, 'base64'),
+      );
+      return Buffer.from(plain);
+    } catch {
+      return null;
+    }
   }
 
   private generateOtpCode() {

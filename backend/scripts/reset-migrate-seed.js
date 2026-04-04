@@ -212,6 +212,8 @@ async function main() {
     '05_security_hardening.sql',
     '06_card_normalization.sql',
     '07_account_number_encryption.sql',
+    '08_user_key_metadata.sql',
+    '09_key_recovery_wrap.sql',
   ];
   const fullFiles = ['00_reset.sql', '01_schema.sql', ...migrateFiles];
   const sqlFiles = migrateOnly ? migrateFiles : fullFiles;

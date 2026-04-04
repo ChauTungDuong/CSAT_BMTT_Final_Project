@@ -102,7 +102,13 @@ export class CustomersService {
     if (!customer) throw new NotFoundException('Không tìm thấy khách hàng');
 
     const isOwner = customer.userId === viewerId;
-    const canDecrypt = isOwner || viewerRole === Role.ADMIN;
+    if (!isOwner && viewerRole === Role.ADMIN) {
+      throw new ForbiddenException(
+        'Tạm thời ẩn chức năng admin xem chi tiết người dùng theo chính sách bảo mật',
+      );
+    }
+
+    const canDecrypt = isOwner;
 
     const [phone, cccd, dob, address] = canDecrypt
       ? await Promise.all([
@@ -382,7 +388,7 @@ export class CustomersService {
     await this.customerRepo.save(customer);
 
     // Gửi email
-    await this.mailService.sendPinSetupEmail(customer.email, newPin);
+    await this.mailService.sendPinSetupEmail(customer.email);
 
     await this.audit.log(
       'PIN_SETUP_SUCCESS',
@@ -391,7 +397,7 @@ export class CustomersService {
       ip,
       'PIN setup initially',
     );
-    return { message: 'Cài đặt PIN thành công và đã gửi email' };
+    return { message: 'Cài đặt PIN thành công' };
   }
 
   // ── ĐẶT/ĐỔI PIN ──────────────────────────────────────────────

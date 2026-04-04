@@ -17,12 +17,12 @@ export class MailService {
     });
   }
 
-  async sendPinSetupEmail(to: string, pin: string) {
+  async sendPinSetupEmail(to: string) {
     const mailOptions = {
       from: this.configService.get<string>('MAIL_USER'),
       to,
       subject: 'Mã PIN Của Bạn Đã Được Thiết Lập',
-      text: `Mã PIN mới của bạn là: ${pin}. Vui lòng không chia sẻ mã này cho bất kỳ ai.`,
+      text: 'Mã PIN của bạn đã được thiết lập thành công. Nếu không phải bạn thực hiện thao tác này, vui lòng liên hệ hỗ trợ ngay.',
     };
 
     try {

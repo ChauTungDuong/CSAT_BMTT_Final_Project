@@ -40,7 +40,7 @@ export class TransportEnvelopeInterceptor implements NestInterceptor {
     }
 
     if (!this.isEnvelopeMode(req)) {
-      if (strictEnabled && !this.isStrictBypassPath(path)) {
+      if (strictEnabled) {
         throw new BadRequestException(
           'Yêu cầu bắt buộc dùng envelope mã hóa ở chế độ strict transport',
         );
@@ -211,11 +211,6 @@ export class TransportEnvelopeInterceptor implements NestInterceptor {
       return false;
     }
     return this.rsaTransport.isEnabled();
-  }
-
-  private isStrictBypassPath(path: string): boolean {
-    // Keep monitor APIs accessible for operational visibility in dev mode.
-    return path.startsWith('/api/crypto');
   }
 
   private isSensitivePath(path: string): boolean {

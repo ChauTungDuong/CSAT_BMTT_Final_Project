@@ -70,8 +70,7 @@ export class AdminService {
     const filteredItems = keyword
       ? items.filter((item) => {
           const usernameMatch = item.username?.toLowerCase().includes(keyword);
-          const userIdMatch = item.id?.toLowerCase().includes(keyword);
-          return !!(usernameMatch || userIdMatch);
+          return !!usernameMatch;
         })
       : items;
 
@@ -303,5 +302,4 @@ export class AdminService {
       throw new ForbiddenException('PIN admin không đúng');
     }
   }
-
 }

@@ -169,13 +169,16 @@ function hashAccountNumber(accountNumber) {
 }
 
 function normalizeEmail(email) {
-  return String(email || '').trim().toLowerCase();
+  return String(email || '')
+    .trim()
+    .toLowerCase();
 }
 
 function hashEmail(email) {
-  return hmacSha256(masterKey, Buffer.from(normalizeEmail(email), 'utf8')).toString(
-    'hex',
-  );
+  return hmacSha256(
+    masterKey,
+    Buffer.from(normalizeEmail(email), 'utf8'),
+  ).toString('hex');
 }
 
 function normalizePiiValue(value) {
@@ -183,9 +186,10 @@ function normalizePiiValue(value) {
 }
 
 function hashPiiValue(value) {
-  return hmacSha256(masterKey, Buffer.from(normalizePiiValue(value), 'utf8')).toString(
-    'hex',
-  );
+  return hmacSha256(
+    masterKey,
+    Buffer.from(normalizePiiValue(value), 'utf8'),
+  ).toString('hex');
 }
 
 const admins = [
@@ -373,6 +377,7 @@ async function upsertUser(conn, payload) {
        SET USERNAME = :username,
            PASSWORD_HASH = :passwordHash,
            FULL_NAME = :fullName,
+           FULL_NAME_ENC = :fullNameEnc,
            EMAIL = :email,
            EMAIL_HASH = :emailHash,
            ROLE = :role,
@@ -383,6 +388,7 @@ async function upsertUser(conn, payload) {
        WHERE ID = :id`,
       {
         ...payload,
+        fullNameEnc: { val: payload.fullNameEnc, type: oracledb.BUFFER },
         email: { val: emailEncrypted, type: oracledb.BUFFER },
         emailHash,
       },
@@ -392,12 +398,13 @@ async function upsertUser(conn, payload) {
 
   await conn.execute(
     `INSERT INTO USERS (
-       ID, USERNAME, PASSWORD_HASH, FULL_NAME, EMAIL, EMAIL_HASH, ROLE, IS_ACTIVE, ADMIN_PIN_HASH, FORCE_PASSWORD_CHANGE
+       ID, USERNAME, PASSWORD_HASH, FULL_NAME, FULL_NAME_ENC, EMAIL, EMAIL_HASH, ROLE, IS_ACTIVE, ADMIN_PIN_HASH, FORCE_PASSWORD_CHANGE
      ) VALUES (
-       :id, :username, :passwordHash, :fullName, :email, :emailHash, :role, 1, :adminPinHash, 0
+       :id, :username, :passwordHash, :fullName, :fullNameEnc, :email, :emailHash, :role, 1, :adminPinHash, 0
      )`,
     {
       ...payload,
+      fullNameEnc: { val: payload.fullNameEnc, type: oracledb.BUFFER },
       email: { val: emailEncrypted, type: oracledb.BUFFER },
       emailHash,
     },
@@ -410,6 +417,7 @@ async function upsertCustomer(conn, c, userDek) {
   const normalizedEmail = normalizeEmail(c.email);
   const emailEncrypted = encryptCellWithKey(masterKey, normalizedEmail);
   const emailHash = hashEmail(normalizedEmail);
+  const encFullName = encryptCellWithKey(userDek, c.fullName);
   const phoneHash = hashPiiValue(c.phone);
   const cccdHash = hashPiiValue(c.cccd);
   const encPhone = encryptCellWithKey(userDek, c.phone);
@@ -428,6 +436,7 @@ async function upsertCustomer(conn, c, userDek) {
       `UPDATE CUSTOMERS
        SET USER_ID = :userId,
            FULL_NAME = :fullName,
+           FULL_NAME_ENC = :fullNameEnc,
            EMAIL = :email,
            EMAIL_HASH = :emailHash,
            PHONE_HASH = :phoneHash,
@@ -445,7 +454,8 @@ async function upsertCustomer(conn, c, userDek) {
       {
         id: customerId,
         userId: c.userId,
-        fullName: c.fullName,
+        fullName: '***',
+        fullNameEnc: { val: encFullName, type: oracledb.BUFFER },
         email: { val: emailEncrypted, type: oracledb.BUFFER },
         emailHash,
         phoneHash,
@@ -462,16 +472,17 @@ async function upsertCustomer(conn, c, userDek) {
 
   await conn.execute(
     `INSERT INTO CUSTOMERS (
-       ID, USER_ID, FULL_NAME, EMAIL, EMAIL_HASH, PHONE_HASH, CCCD_HASH, PHONE, CCCD, DATE_OF_BIRTH, ADDRESS,
+       ID, USER_ID, FULL_NAME, FULL_NAME_ENC, EMAIL, EMAIL_HASH, PHONE_HASH, CCCD_HASH, PHONE, CCCD, DATE_OF_BIRTH, ADDRESS,
        PIN_HASH, PIN_FAILED_ATTEMPTS, PIN_LOCKED, PIN_LOCKED_AT
      ) VALUES (
-       :id, :userId, :fullName, :email, :emailHash, :phoneHash, :cccdHash, :phone, :cccd, :dob, :address,
+       :id, :userId, :fullName, :fullNameEnc, :email, :emailHash, :phoneHash, :cccdHash, :phone, :cccd, :dob, :address,
        :pinHash, 0, 0, NULL
      )`,
     {
       id: c.customerId,
       userId: c.userId,
-      fullName: c.fullName,
+      fullName: '***',
+      fullNameEnc: { val: encFullName, type: oracledb.BUFFER },
       email: { val: emailEncrypted, type: oracledb.BUFFER },
       emailHash,
       phoneHash,
@@ -763,12 +774,23 @@ async function ensureUserKeyMetadataSchema(conn) {
   }
 }
 
+async function ensureFullNameEncryptedColumns(conn) {
+  if (!(await columnExists(conn, 'USERS', 'FULL_NAME_ENC'))) {
+    await conn.execute(`ALTER TABLE USERS ADD (FULL_NAME_ENC BLOB)`);
+  }
+
+  if (!(await columnExists(conn, 'CUSTOMERS', 'FULL_NAME_ENC'))) {
+    await conn.execute(`ALTER TABLE CUSTOMERS ADD (FULL_NAME_ENC BLOB)`);
+  }
+}
+
 async function seed() {
   console.log(`Running secure seed in mode: ${runtimeMode}`);
   const conn = await oracledb.getConnection(buildConnectionOptions());
 
   try {
     await ensureUserKeyMetadataSchema(conn);
+    await ensureFullNameEncryptedColumns(conn);
 
     if (fresh) {
       console.log('Clearing previously seeded rows...');
@@ -777,32 +799,36 @@ async function seed() {
 
     const defaultPassword = 'Password@123';
     for (const admin of admins) {
+      const adminDek = crypto.randomBytes(32);
       const adminResult = await upsertUser(conn, {
         id: admin.id,
         username: admin.username,
         passwordHash: hashSecret(defaultPassword, 'password'),
-        fullName: admin.fullName,
+        fullName: '***',
+        fullNameEnc: encryptCellWithKey(adminDek, admin.fullName),
         email: admin.email,
         role: 'admin',
         adminPinHash: hashSecret(admin.adminPin, 'pin'),
       });
+      await upsertUserKeyMetadata(conn, admin.id, defaultPassword, adminDek);
       console.log(
-        `${adminResult === 'inserted' ? 'Created' : 'Updated'} admin ${admin.username}`,
+        `${adminResult === 'inserted' ? 'Created' : 'Updated'} admin ${admin.username} (+ key metadata)`,
       );
     }
 
     for (const c of customers) {
+      const userDek = crypto.randomBytes(32);
       const userResult = await upsertUser(conn, {
         id: c.userId,
         username: c.username,
         passwordHash: hashSecret(defaultPassword, 'password'),
-        fullName: c.fullName,
+        fullName: '***',
+        fullNameEnc: encryptCellWithKey(userDek, c.fullName),
         email: c.email,
         role: 'customer',
         adminPinHash: null,
       });
 
-      const userDek = crypto.randomBytes(32);
       const customerId = await upsertCustomer(conn, c, userDek);
       const accountResult = await upsertAccount(conn, c, customerId, userDek);
       await upsertUserKeyMetadata(conn, c.userId, defaultPassword, userDek);

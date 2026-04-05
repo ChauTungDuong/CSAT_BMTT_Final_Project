@@ -47,10 +47,13 @@ export class CustomersService {
     private pbkdf2: Pbkdf2Service,
     private emailCrypto: EmailCryptoService,
   ) {
-    const piiHashKeyHex =
-      (process.env.EMAIL_HASH_KEY || process.env.AES_MASTER_KEY || '')
-        .trim()
-        .toLowerCase();
+    const piiHashKeyHex = (
+      process.env.EMAIL_HASH_KEY ||
+      process.env.AES_MASTER_KEY ||
+      ''
+    )
+      .trim()
+      .toLowerCase();
 
     if (!/^[0-9a-f]{64}$/.test(piiHashKeyHex)) {
       throw new Error(
@@ -82,7 +85,8 @@ export class CustomersService {
       throw new BadRequestException('CCCD đã tồn tại');
     }
 
-    const [phone, cccd, dob, address] = await Promise.all([
+    const [fullName, phone, cccd, dob, address] = await Promise.all([
+      this.aes.encrypt(dto.fullName),
       this.aes.encrypt(dto.phone),
       this.aes.encrypt(dto.cccd),
       this.aes.encrypt(dto.dateOfBirth),
@@ -95,7 +99,8 @@ export class CustomersService {
     const customer = this.customerRepo.create({
       id,
       userId,
-      fullName: dto.fullName,
+      fullName: '***',
+      fullNameEnc: this.aes.serialize(fullName),
       email: this.emailCrypto.encryptEmail(dto.email),
       emailHash: this.emailCrypto.hashEmail(dto.email),
       phoneHash,
@@ -141,7 +146,10 @@ export class CustomersService {
       throw new ForbiddenException('Không có quyền truy cập hồ sơ này');
     }
 
-    const [phone, cccd, dob, address] = await Promise.all([
+    const [fullName, phone, cccd, dob, address] = await Promise.all([
+      customer.fullNameEnc
+        ? this.aes.decrypt(this.aes.deserialize(customer.fullNameEnc as Buffer))
+        : Promise.resolve(customer.fullName),
       this.aes.decrypt(this.aes.deserialize(customer.phone as Buffer)),
       this.aes.decrypt(this.aes.deserialize(customer.cccd as Buffer)),
       this.aes.decrypt(this.aes.deserialize(customer.dateOfBirth as Buffer)),
@@ -151,12 +159,14 @@ export class CustomersService {
     const roleToUse = Role.CUSTOMER;
     const pinMode = isOwner && this.isPinViewSessionValid(viewerId, viewToken);
 
-    const user = await this.userRepo.findOne({ where: { id: customer.userId } });
+    const user = await this.userRepo.findOne({
+      where: { id: customer.userId },
+    });
 
     return {
       id: customer.id,
       username: user?.username ?? '',
-      fullName: customer.fullName,
+      fullName: fullName || customer.fullName || '***',
       email: this.masking.mask(
         this.emailCrypto.readEmail(customer.email),
         'email',
@@ -207,8 +217,14 @@ export class CustomersService {
       if (!normalizedName) {
         throw new BadRequestException('Họ và tên không được để trống');
       }
-      customer.fullName = normalizedName;
-      user.fullName = normalizedName;
+      const [encCustomerFullName, encUserFullName] = await Promise.all([
+        this.aes.encrypt(normalizedName),
+        this.aes.encrypt(normalizedName),
+      ]);
+      customer.fullName = '***';
+      customer.fullNameEnc = this.aes.serialize(encCustomerFullName);
+      user.fullName = '***';
+      user.fullNameEnc = this.aes.serialize(encUserFullName);
     }
 
     if (dto.email !== undefined) {

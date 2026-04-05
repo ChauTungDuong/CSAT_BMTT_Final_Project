@@ -69,30 +69,7 @@ export class MaskingEngine {
 
   // ── ADMIN (quản trị hệ thống) ─────────────────────────────────
   private maskForAdmin(value: string, field: FieldType): string {
-    switch (field) {
-      case 'phone':
-        return this.maskCenterChars(value, 6);
-      case 'email':
-        return this.maskEmailLocalHead2Tail2(value);
-      case 'cccd':
-        return this.maskCenterChars(value, 6);
-      case 'card_number':
-        return this.fullMask('card_number');
-      case 'cvv':
-        return '***';
-      case 'balance':
-        return this.fullMask('balance');
-      case 'account_number':
-        return this.maskKeepHeadTail(value, 3, 4);
-      case 'date_of_birth':
-        return this.maskDateOfBirth(value);
-      case 'address':
-        return (
-          value.split(',').slice(-1)[0]?.trim() || this.fullMask('address')
-        );
-      default:
-        return value;
-    }
+    return this.fullMask(field);
   }
 
   private fullMask(field: FieldType): string {

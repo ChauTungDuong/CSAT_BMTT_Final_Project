@@ -30,6 +30,9 @@ export class User {
   @Column({ name: 'FULL_NAME', length: 200 })
   fullName: string;
 
+  @Column({ name: 'FULL_NAME_ENC', type: 'blob', nullable: true })
+  fullNameEnc: Buffer | null;
+
   @Column({
     name: 'FORCE_PASSWORD_CHANGE',
     type: 'decimal',

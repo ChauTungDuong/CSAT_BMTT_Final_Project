@@ -168,16 +168,29 @@ export class AuthService {
 
     await this.initializeFreshUserDek(userId, dto.password, 'active');
 
+    const encUserFullName = await this.aesService.encryptForUser(
+      userId,
+      dto.fullName,
+    );
+    user.fullName = '***';
+    user.fullNameEnc = this.aesService.serialize(encUserFullName);
+    await this.userRepo.save(user);
+
     const encPhone = await this.aesService.encryptForUser(userId, dto.phone);
     const encCccd = await this.aesService.encryptForUser(userId, dto.cccd);
     const normalizedDob = this.normalizeDateOfBirth(dto.dateOfBirth);
     const encDob = await this.aesService.encryptForUser(userId, normalizedDob);
     const encAddr = await this.aesService.encryptForUser(userId, dto.address);
+    const encCustomerFullName = await this.aesService.encryptForUser(
+      userId,
+      dto.fullName,
+    );
 
     const customer = this.customerRepo.create({
       id: customerId,
       userId: userId,
-      fullName: dto.fullName,
+      fullName: '***',
+      fullNameEnc: this.aesService.serialize(encCustomerFullName),
       email: this.emailCrypto.encryptEmail(normalizedEmail),
       emailHash,
       phone: this.aesService.serialize(encPhone),
@@ -310,9 +323,7 @@ export class AuthService {
       await this.userRepo.save(user);
     }
 
-    if (user.role === 'customer') {
-      await this.ensureUserDekRuntime(user.id, dto.password);
-    }
+    await this.ensureUserDekRuntime(user.id, dto.password);
 
     const sid = this.sessionRegistry.issueSession(user.id);
 
@@ -341,11 +352,12 @@ export class AuthService {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Không tìm thấy người dùng');
     const resolvedEmail = this.resolveUserEmail(user);
+    const resolvedFullName = await this.resolveUserFullName(userId, user);
     return {
       id: user.id,
       username: user.username,
       role: user.role,
-      fullName: user.fullName,
+      fullName: resolvedFullName,
       email: resolvedEmail,
       forcePasswordChange: !!user.forcePasswordChange,
       hasAdminPin: user.role === 'admin' ? !!user.adminPinHash : undefined,
@@ -366,8 +378,20 @@ export class AuthService {
       if (!normalizedName) {
         throw new BadRequestException('Họ và tên không được để trống');
       }
-      user.fullName = normalizedName;
-      if (customer) customer.fullName = normalizedName;
+      const encUserFullName = await this.aesService.encryptForUser(
+        userId,
+        normalizedName,
+      );
+      user.fullName = '***';
+      user.fullNameEnc = this.aesService.serialize(encUserFullName);
+      if (customer) {
+        const encCustomerFullName = await this.aesService.encryptForUser(
+          userId,
+          normalizedName,
+        );
+        customer.fullName = '***';
+        customer.fullNameEnc = this.aesService.serialize(encCustomerFullName);
+      }
     }
 
     if (data.email !== undefined) {
@@ -939,5 +963,26 @@ export class AuthService {
 
   private hashPiiValue(value: string): string {
     return this.pbkdf2.hmacHex(this.normalizePiiValue(value), this.piiHashKey);
+  }
+
+  private async resolveUserFullName(
+    userId: string,
+    user: User,
+  ): Promise<string> {
+    if (user.fullNameEnc) {
+      try {
+        const decrypted = await this.aesService.decryptForUser(
+          userId,
+          this.aesService.deserialize(user.fullNameEnc),
+        );
+        if (decrypted) {
+          return decrypted;
+        }
+      } catch {
+        // Fallback to legacy/plain value below.
+      }
+    }
+
+    return user.fullName || '***';
   }
 }

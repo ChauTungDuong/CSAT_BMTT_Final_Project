@@ -1,4 +1,4 @@
-﻿import { useRef, useState, KeyboardEvent } from "react";
+import { useRef, useState, KeyboardEvent } from "react";
 import api from "../../api/client";
 
 interface PinModalProps {
@@ -11,7 +11,7 @@ interface PinModalProps {
 
 export function PinModal({
   customerId: _customerId,
-  title = "Xác thực PIN",
+  title = "Xem chi tiết",
   onSuccess,
   onClose,
   onConfirm,
@@ -131,15 +131,17 @@ export function PinModal({
 
         <div className="flex gap-3">
           <button
+            type="button"
             onClick={onClose}
-            className="flex-1 py-2 rounded border border-gray-300 text-gray-600 hover:bg-gray-50"
+            className="flex-1 min-h-11 rounded-lg border border-gray-300 py-3 text-sm font-medium text-gray-600 hover:bg-gray-50"
           >
             {locked ? "Đóng" : "Hủy"}
           </button>
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={locked || digits.join("").length < 6 || isLoading}
-            className="flex-1 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            className="flex-1 min-h-11 rounded-lg bg-blue-600 py-3 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {isLoading ? "Đang xác thực…" : "Xác nhận"}
           </button>

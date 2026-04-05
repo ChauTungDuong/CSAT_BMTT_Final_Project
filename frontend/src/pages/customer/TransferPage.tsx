@@ -2,7 +2,9 @@ import { useState, FormEvent, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import api from "../../api/client";
+import { BackToDashboardLink } from "../../components/common/BackToDashboardLink";
 import type { Account } from "../../types";
+import { accountTypeLabel } from "../../utils/accountLabels";
 
 export function TransferPage() {
   const navigate = useNavigate();
@@ -77,108 +79,107 @@ export function TransferPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 relative">
-      <div className="max-w-lg mx-auto px-4 py-8">
-        <div className="flex items-center gap-3 mb-6">
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="text-blue-600 hover:underline text-sm"
-          >
-            ← Quay lại
-          </button>
-          <h1 className="text-xl font-bold text-gray-800">Chuyển tiền</h1>
-        </div>
+    <div className="min-h-screen bg-gradient-to-b from-slate-100/90 to-gray-50">
+      <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
+        <div className="space-y-6 rounded-2xl border border-slate-100 bg-white p-5 shadow-sm ring-1 ring-slate-100 sm:p-6 md:p-8">
+          <header>
+            <BackToDashboardLink className="mb-3" />
+            <h1 className="text-xl font-bold tracking-tight text-slate-800 sm:text-2xl">
+              Chuyển tiền
+            </h1>
+          </header>
 
-        <div className="bg-white rounded-xl shadow-sm p-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Tài khoản nguồn
-              </label>
-              <div className="w-full border rounded-lg px-3 py-2 bg-gray-100 text-gray-700 flex items-center">
-                {accounts?.[0] ? (
-                  <span>
-                    {accounts[0].accountNumber} ({accounts[0].accountType})
-                  </span>
-                ) : (
-                  <span className="text-gray-400">Đang tải...</span>
-                )}
+          <div className="w-full rounded-xl border border-slate-100 bg-slate-50/90 p-5 sm:p-6">
+            <form onSubmit={handleSubmit} className="w-full space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Tài khoản nguồn
+                </label>
+                <div className="flex w-full items-center rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-slate-700">
+                  {accounts?.[0] ? (
+                    <span>
+                      {`${accounts[0].accountNumber} (${accountTypeLabel(accounts[0].accountType)})`}
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">Đang tải...</span>
+                  )}
+                </div>
               </div>
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Số tài khoản nhận
-              </label>
-              <input
-                type="text"
-                value={form.toAccountNumber}
-                onChange={set("toAccountNumber")}
-                required
-                placeholder="Nhập số tài khoản người nhận"
-                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Số tiền (VNĐ)
-              </label>
-              <input
-                type="number"
-                value={form.amount}
-                onChange={set("amount")}
-                required
-                min="1000"
-                step="1000"
-                placeholder="0"
-                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nội dung chuyển khoản
-              </label>
-              <input
-                type="text"
-                value={form.description}
-                onChange={set("description")}
-                maxLength={200}
-                placeholder="Ví dụ: Trả tiền thuê nhà tháng 6"
-                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Mã PIN xác thực
-              </label>
-              <input
-                type="password"
-                maxLength={6}
-                value={form.pin}
-                onChange={set("pin")}
-                required
-                placeholder="Nhập mã PIN 6 số"
-                className="w-full border rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none tracking-widest text-center"
-              />
-            </div>
-
-            {error && (
-              <div className="bg-red-50 text-red-600 text-sm px-4 py-3 rounded-lg">
-                {error}
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Số tài khoản nhận
+                </label>
+                <input
+                  type="text"
+                  value={form.toAccountNumber}
+                  onChange={set("toAccountNumber")}
+                  required
+                  placeholder="Nhập số tài khoản người nhận"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
-            )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full mt-4 bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition"
-            >
-              {loading ? "Đang xử lý…" : "Chuyển tiền"}
-            </button>
-          </form>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Số tiền (VNĐ)
+                </label>
+                <input
+                  type="number"
+                  value={form.amount}
+                  onChange={set("amount")}
+                  required
+                  min="1000"
+                  step="1000"
+                  placeholder="0"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Nội dung chuyển khoản
+                </label>
+                <input
+                  type="text"
+                  value={form.description}
+                  onChange={set("description")}
+                  maxLength={200}
+                  placeholder="Ví dụ: Trả tiền thuê nhà tháng 6"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium text-slate-700">
+                  Mã PIN xác thực
+                </label>
+                <input
+                  type="password"
+                  maxLength={6}
+                  value={form.pin}
+                  onChange={set("pin")}
+                  required
+                  placeholder="Nhập mã PIN 6 số"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-center tracking-widest outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {error && (
+                <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="mt-4 w-full rounded-xl bg-blue-600 py-3 font-medium text-white transition hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loading ? "Đang xử lý…" : "Chuyển tiền"}
+              </button>
+            </form>
+          </div>
         </div>
       </div>
 

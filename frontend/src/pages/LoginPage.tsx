@@ -2,6 +2,7 @@ import { useState, FormEvent, useEffect } from "react";
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import api from "../api/client";
+import { EyeIcon, EyeSlashIcon } from "../components/common/EyeIcons";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -21,6 +22,10 @@ export default function LoginPage() {
   const [forgotError, setForgotError] = useState("");
   const [forgotMessage, setForgotMessage] = useState("");
   const [forgotLoading, setForgotLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showForgotNewPassword, setShowForgotNewPassword] = useState(false);
+  const [showForgotConfirmPassword, setShowForgotConfirmPassword] =
+    useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
@@ -146,14 +151,16 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="bg-white shadow-lg rounded-2xl p-10 w-full max-w-md">
-        <h1 className="text-2xl font-bold text-blue-700 mb-2">BankDemo</h1>
-        <p className="text-gray-500 mb-6 text-sm">Đăng nhập vào tài khoản</p>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="bg-white shadow-lg rounded-2xl p-12 w-full max-w-lg">
+        <div className="text-center mb-8">
+          <h1 className="text-3xl font-bold text-blue-700 mb-2">BankDemo</h1>
+          <p className="text-gray-500 text-base">Đăng nhập vào tài khoản</p>
+        </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-base font-medium text-gray-700 mb-2">
               Tên đăng nhập
             </label>
             <input
@@ -162,22 +169,37 @@ export default function LoginPage() {
               onChange={(e) => setUsername(e.target.value)}
               required
               autoComplete="username"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full text-lg leading-normal border border-gray-300 rounded-xl px-4 py-3.5 min-h-[3rem] focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label
+              htmlFor="login-password"
+              className="block text-base font-medium text-gray-700 mb-2"
+            >
               Mật khẩu
             </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              autoComplete="current-password"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+            <div className="relative">
+              <input
+                id="login-password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                autoComplete="current-password"
+                className="no-native-password-reveal w-full min-h-[3rem] rounded-xl border border-gray-300 py-3.5 pl-4 pr-12 text-lg leading-normal focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-800 focus:outline-none focus-visible:text-gray-900 focus-visible:ring-2 focus-visible:ring-blue-500/35 focus-visible:ring-offset-0 rounded-sm"
+                onClick={() => setShowPassword((v) => !v)}
+                aria-label={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                aria-pressed={showPassword}
+              >
+                {showPassword ? <EyeSlashIcon /> : <EyeIcon />}
+              </button>
+            </div>
             <div className="mt-2 text-right">
               <button
                 type="button"
@@ -187,7 +209,7 @@ export default function LoginPage() {
                   setForgotError("");
                   setForgotMessage("");
                 }}
-                className="text-sm text-blue-600 hover:underline"
+                className="text-base text-blue-600 hover:underline"
               >
                 Quên mật khẩu?
               </button>
@@ -195,7 +217,7 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <p className="text-red-500 text-sm bg-red-50 px-3 py-2 rounded">
+            <p className="text-red-500 text-base bg-red-50 px-4 py-3 rounded-lg">
               {error}
             </p>
           )}
@@ -203,13 +225,13 @@ export default function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition disabled:opacity-50 font-medium"
+            className="w-full text-lg bg-blue-600 text-white py-3.5 rounded-xl hover:bg-blue-700 transition disabled:opacity-50 font-medium"
           >
             {loading ? "Đang đăng nhập…" : "Đăng nhập"}
           </button>
         </form>
 
-        <p className="mt-5 text-center text-sm text-gray-500">
+        <p className="mt-6 text-center text-base text-gray-500">
           Chưa có tài khoản?{" "}
           <Link to="/register" className="text-blue-600 hover:underline">
             Đăng ký
@@ -239,7 +261,7 @@ export default function LoginPage() {
                     type="text"
                     value={forgotUsername}
                     onChange={(e) => setForgotUsername(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2"
+                    className="w-full text-lg leading-normal border rounded-lg px-3 py-3 min-h-[2.75rem]"
                   />
                 </div>
                 <div>
@@ -250,7 +272,7 @@ export default function LoginPage() {
                     type="email"
                     value={forgotEmail}
                     onChange={(e) => setForgotEmail(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2"
+                    className="w-full text-lg leading-normal border rounded-lg px-3 py-3 min-h-[2.75rem]"
                   />
                 </div>
 
@@ -298,30 +320,82 @@ export default function LoginPage() {
                     onChange={(e) =>
                       setForgotOtp(e.target.value.replace(/\D/g, ""))
                     }
-                    className="w-full border rounded-lg px-3 py-2"
+                    className="w-full text-lg leading-normal tracking-widest border rounded-lg px-3 py-3 min-h-[2.75rem]"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">
+                  <label
+                    htmlFor="forgot-new-password"
+                    className="block text-sm text-slate-600 mb-1"
+                  >
                     Mật khẩu mới
                   </label>
-                  <input
-                    type="password"
-                    value={forgotNewPassword}
-                    onChange={(e) => setForgotNewPassword(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2"
-                  />
+                  <div className="relative">
+                    <input
+                      id="forgot-new-password"
+                      type={showForgotNewPassword ? "text" : "password"}
+                      value={forgotNewPassword}
+                      onChange={(e) => setForgotNewPassword(e.target.value)}
+                      className="no-native-password-reveal min-h-[2.75rem] w-full rounded-lg border py-3 pl-3 pr-12 text-lg leading-normal"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-sm p-1 text-gray-500 hover:text-gray-800 focus:outline-none focus-visible:text-gray-900 focus-visible:ring-2 focus-visible:ring-blue-500/35 focus-visible:ring-offset-0"
+                      onClick={() =>
+                        setShowForgotNewPassword((v) => !v)
+                      }
+                      aria-label={
+                        showForgotNewPassword
+                          ? "Ẩn mật khẩu mới"
+                          : "Hiện mật khẩu mới"
+                      }
+                      aria-pressed={showForgotNewPassword}
+                    >
+                      {showForgotNewPassword ? (
+                        <EyeSlashIcon />
+                      ) : (
+                        <EyeIcon />
+                      )}
+                    </button>
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-sm text-slate-600 mb-1">
+                  <label
+                    htmlFor="forgot-confirm-password"
+                    className="block text-sm text-slate-600 mb-1"
+                  >
                     Xác nhận mật khẩu mới
                   </label>
-                  <input
-                    type="password"
-                    value={forgotConfirmPassword}
-                    onChange={(e) => setForgotConfirmPassword(e.target.value)}
-                    className="w-full border rounded-lg px-3 py-2"
-                  />
+                  <div className="relative">
+                    <input
+                      id="forgot-confirm-password"
+                      type={showForgotConfirmPassword ? "text" : "password"}
+                      value={forgotConfirmPassword}
+                      onChange={(e) =>
+                        setForgotConfirmPassword(e.target.value)
+                      }
+                      className="no-native-password-reveal min-h-[2.75rem] w-full rounded-lg border py-3 pl-3 pr-12 text-lg leading-normal"
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-sm p-1 text-gray-500 hover:text-gray-800 focus:outline-none focus-visible:text-gray-900 focus-visible:ring-2 focus-visible:ring-blue-500/35 focus-visible:ring-offset-0"
+                      onClick={() =>
+                        setShowForgotConfirmPassword((v) => !v)
+                      }
+                      aria-label={
+                        showForgotConfirmPassword
+                          ? "Ẩn xác nhận mật khẩu"
+                          : "Hiện xác nhận mật khẩu"
+                      }
+                      aria-pressed={showForgotConfirmPassword}
+                    >
+                      {showForgotConfirmPassword ? (
+                        <EyeSlashIcon />
+                      ) : (
+                        <EyeIcon />
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {forgotError && (

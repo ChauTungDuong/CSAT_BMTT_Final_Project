@@ -6,3 +6,13 @@ body {
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
+
+/* Ẩn nút hiện/ẩn mật khẩu mặc định của Edge/Chrome (tránh trùng icon với nút tùy chỉnh). */
+.no-native-password-reveal::-ms-reveal,
+.no-native-password-reveal::-ms-clear {
+  display: none;
+}
+
+.no-native-password-reveal::-webkit-textfield-decoration-container {
+  display: none;
+}

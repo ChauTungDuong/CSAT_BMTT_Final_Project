@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import {
   BrowserRouter,
   Routes,
@@ -55,6 +56,14 @@ function RoleRedirect() {
   return <Navigate to="/dashboard" replace />;
 }
 
+function ScrollToTopOnNavigate() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [pathname]);
+  return null;
+}
+
 // ---------- Layout (with Navbar) ----------
 
 function AppLayout() {
@@ -71,6 +80,7 @@ function AppLayout() {
 export default function App() {
   return (
     <BrowserRouter>
+      <ScrollToTopOnNavigate />
       <Routes>
         {/* Public */}
         <Route path="/login" element={<LoginPage />} />

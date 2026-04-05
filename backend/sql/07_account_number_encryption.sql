@@ -1,36 +1,112 @@
 -- ================================================================
--- Migration: Encrypt Account Numbers (Support for Encrypted Storage)
--- Adds ACCOUNT_NUMBER_HASH column for searchable lookups
--- Modifies ACCOUNT_NUMBER to store encrypted blob
+-- Migration: Encrypt Account Numbers (Idempotent)
+-- - Adds ACCOUNT_NUMBER_HASH column for searchable lookups
+-- - Ensures ACCOUNT_NUMBER is BLOB for encrypted storage
+-- - Safe to run multiple times
 -- ================================================================
 
--- Step 1: Add new column for hash-based lookups
-ALTER TABLE ACCOUNTS ADD (ACCOUNT_NUMBER_HASH VARCHAR2(64));
+-- Step 1: Ensure ACCOUNT_NUMBER_HASH exists.
+DECLARE
+  v_count NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO v_count
+  FROM USER_TAB_COLUMNS
+  WHERE TABLE_NAME = 'ACCOUNTS' AND COLUMN_NAME = 'ACCOUNT_NUMBER_HASH';
 
--- Step 2: Create unique index on the new hash column
-CREATE UNIQUE INDEX UQ_ACCOUNTS_NUMBER_HASH ON ACCOUNTS(ACCOUNT_NUMBER_HASH);
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE 'ALTER TABLE ACCOUNTS ADD (ACCOUNT_NUMBER_HASH VARCHAR2(64))';
+  END IF;
+END;
+/
 
--- Step 3: Rename old account number column (keep backup)
-ALTER TABLE ACCOUNTS RENAME COLUMN ACCOUNT_NUMBER TO ACCOUNT_NUMBER_LEGACY;
+-- Step 2: Ensure unique index on ACCOUNT_NUMBER_HASH exists.
+DECLARE
+  v_count NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO v_count
+  FROM USER_INDEXES
+  WHERE INDEX_NAME = 'UQ_ACCOUNTS_NUMBER_HASH';
 
--- Step 4: Add new ACCOUNT_NUMBER column as BLOB for encrypted storage
-ALTER TABLE ACCOUNTS ADD (ACCOUNT_NUMBER BLOB);
+  IF v_count = 0 THEN
+    EXECUTE IMMEDIATE 'CREATE UNIQUE INDEX UQ_ACCOUNTS_NUMBER_HASH ON ACCOUNTS(ACCOUNT_NUMBER_HASH)';
+  END IF;
+END;
+/
 
--- Step 4b: Drop legacy plaintext column (reset flow does not need it)
-ALTER TABLE ACCOUNTS DROP COLUMN ACCOUNT_NUMBER_LEGACY;
+-- Step 3: If ACCOUNT_NUMBER is still VARCHAR2, rename to legacy then recreate as BLOB.
+DECLARE
+  v_col_count NUMBER;
+  v_col_type USER_TAB_COLUMNS.DATA_TYPE%TYPE;
+  v_legacy_count NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO v_col_count
+  FROM USER_TAB_COLUMNS
+  WHERE TABLE_NAME = 'ACCOUNTS' AND COLUMN_NAME = 'ACCOUNT_NUMBER';
 
--- Step 5: Drop old UNIQUE constraint if it exists on the renamed column
+  IF v_col_count > 0 THEN
+    SELECT DATA_TYPE INTO v_col_type
+    FROM USER_TAB_COLUMNS
+    WHERE TABLE_NAME = 'ACCOUNTS' AND COLUMN_NAME = 'ACCOUNT_NUMBER';
+
+    IF v_col_type = 'VARCHAR2' THEN
+      SELECT COUNT(*) INTO v_legacy_count
+      FROM USER_TAB_COLUMNS
+      WHERE TABLE_NAME = 'ACCOUNTS' AND COLUMN_NAME = 'ACCOUNT_NUMBER_LEGACY';
+
+      IF v_legacy_count = 0 THEN
+        EXECUTE IMMEDIATE 'ALTER TABLE ACCOUNTS RENAME COLUMN ACCOUNT_NUMBER TO ACCOUNT_NUMBER_LEGACY';
+      END IF;
+    ELSIF v_col_type != 'BLOB' THEN
+      RAISE_APPLICATION_ERROR(-20010, 'ACCOUNTS.ACCOUNT_NUMBER phải là BLOB hoặc VARCHAR2 trước migration');
+    END IF;
+  END IF;
+END;
+/
+
+-- Step 4: Ensure ACCOUNT_NUMBER BLOB exists.
+DECLARE
+  v_col_count NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO v_col_count
+  FROM USER_TAB_COLUMNS
+  WHERE TABLE_NAME = 'ACCOUNTS' AND COLUMN_NAME = 'ACCOUNT_NUMBER';
+
+  IF v_col_count = 0 THEN
+    EXECUTE IMMEDIATE 'ALTER TABLE ACCOUNTS ADD (ACCOUNT_NUMBER BLOB)';
+  END IF;
+END;
+/
+
+-- Step 5: Drop old unique constraints tied to legacy/plain account number columns if they exist.
+DECLARE
+  v_sql VARCHAR2(4000);
 BEGIN
   FOR c IN (
-    SELECT constraint_name FROM user_constraints 
-    WHERE table_name = 'ACCOUNTS' AND constraint_type = 'U' 
-     AND constraint_name LIKE '%ACCOUNT_NUMBER%'
-   ) 
-   LOOP
-    EXECUTE IMMEDIATE 'ALTER TABLE ACCOUNTS DROP CONSTRAINT ' || c.constraint_name;
+    SELECT DISTINCT uc.CONSTRAINT_NAME
+    FROM USER_CONSTRAINTS uc
+    JOIN USER_CONS_COLUMNS ucc
+      ON uc.CONSTRAINT_NAME = ucc.CONSTRAINT_NAME
+    WHERE uc.TABLE_NAME = 'ACCOUNTS'
+      AND uc.CONSTRAINT_TYPE = 'U'
+      AND ucc.COLUMN_NAME IN ('ACCOUNT_NUMBER', 'ACCOUNT_NUMBER_LEGACY')
+  ) LOOP
+    v_sql := 'ALTER TABLE ACCOUNTS DROP CONSTRAINT ' || c.CONSTRAINT_NAME;
+    EXECUTE IMMEDIATE v_sql;
   END LOOP;
 END;
 /
 
--- Note: This migration is intended for reset flow where no legacy account data is preserved.
+-- Step 6: Remove temporary legacy plaintext column if still present.
+DECLARE
+  v_count NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO v_count
+  FROM USER_TAB_COLUMNS
+  WHERE TABLE_NAME = 'ACCOUNTS' AND COLUMN_NAME = 'ACCOUNT_NUMBER_LEGACY';
+
+  IF v_count > 0 THEN
+    EXECUTE IMMEDIATE 'ALTER TABLE ACCOUNTS DROP COLUMN ACCOUNT_NUMBER_LEGACY';
+  END IF;
+END;
+/
 

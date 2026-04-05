@@ -4,16 +4,20 @@ import api from "../../api/client";
 import { BackToDashboardLink } from "../../components/common/BackToDashboardLink";
 import type { Account, Transaction } from "../../types";
 import { accountTypeLabel } from "../../utils/accountLabels";
+import { transactionTypeLabelVi } from "../../utils/transactionLabels";
 
 const TX_STATUS_LABELS: Record<string, string> = {
   completed: "Thành công",
   failed: "Thất bại",
   pending: "Đang xử lý",
   cancelled: "Đã hủy",
+  reversed: "Đã hoàn tác",
+  processing: "Đang xử lý",
 };
 
 function transactionStatusLabel(status: string): string {
-  return TX_STATUS_LABELS[status] ?? status;
+  const k = status.trim().toLowerCase();
+  return TX_STATUS_LABELS[k] ?? "Không xác định";
 }
 
 export function TransactionHistoryPage() {
@@ -98,12 +102,8 @@ export function TransactionHistoryPage() {
                         <td className="px-6 py-4 text-sm text-gray-600">
                           {new Date(tx.createdAt).toLocaleString("vi-VN")}
                         </td>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-800 capitalize">
-                          {tx.type === "transfer"
-                            ? tx.direction === "debit"
-                              ? "Chuyển đi"
-                              : "Nhận tiền"
-                            : tx.type}
+                        <td className="px-6 py-4 text-sm font-medium text-gray-800">
+                          {transactionTypeLabelVi(tx.type, tx.direction)}
                         </td>
                         <td
                           className={`px-6 py-4 text-sm font-bold ${tx.direction === "debit" ? "text-red-600" : "text-green-600"}`}

@@ -191,7 +191,7 @@ export default function RegisterPage() {
                   autoComplete="new-password"
                   value={form.password}
                   onChange={set("password")}
-                  className={`${outlinedInputClassName} pr-10`}
+                  className={`${outlinedInputClassName} no-native-password-reveal pr-10`}
                 />
                 <button
                   type="button"
@@ -217,7 +217,7 @@ export default function RegisterPage() {
                   autoComplete="new-password"
                   value={form.confirm}
                   onChange={set("confirm")}
-                  className={`${outlinedInputClassName} pr-10`}
+                  className={`${outlinedInputClassName} no-native-password-reveal pr-10`}
                 />
                 <button
                   type="button"

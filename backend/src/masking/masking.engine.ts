@@ -44,9 +44,9 @@ export class MaskingEngine {
   private maskForCustomer(value: string, field: FieldType): string {
     switch (field) {
       case 'phone':
-        return this.maskCenterChars(value, 2);
+        return this.maskCenterChars(value, 6);
       case 'cccd':
-        return this.maskCenterChars(value, 2);
+        return this.maskCenterChars(value, 6);
       case 'account_number':
         // Số tài khoản luôn là field riêng, không che cho owner
         return value;
@@ -57,7 +57,7 @@ export class MaskingEngine {
       case 'balance':
         return '••••••';
       case 'email':
-        return this.maskEmailKeepLastOneBeforeAt(value);
+        return this.maskEmailLocalHead2Tail2(value);
       case 'date_of_birth':
         return value;
       case 'address':
@@ -71,11 +71,11 @@ export class MaskingEngine {
   private maskForAdmin(value: string, field: FieldType): string {
     switch (field) {
       case 'phone':
-        return this.maskKeepHeadTail(value, 3, 3);
+        return this.maskCenterChars(value, 6);
       case 'email':
-        return this.maskEmailKeepFirstN(value, 4);
+        return this.maskEmailLocalHead2Tail2(value);
       case 'cccd':
-        return this.fullMask('cccd');
+        return this.maskCenterChars(value, 6);
       case 'card_number':
         return this.fullMask('card_number');
       case 'cvv':
@@ -159,35 +159,28 @@ export class MaskingEngine {
     return `${value.slice(0, start)}${'*'.repeat(maskCount)}${value.slice(end)}`;
   }
 
-  private maskEmailKeepFirstN(value: string, keep: number): string {
+  /**
+   * Phần local: giữ 2 ký tự đầu + 2 ký tự cuối, còn lại là *.
+   * Phần @ và domain giữ nguyên (dấu @ hiển thị rõ).
+   * Local < 4 ký tự: che toàn bộ local (không đủ 2 đầu + 2 cuối tách biệt).
+   * Local đúng 4 ký tự: hiện cả 4 (2 đầu + 2 cuối trùng khớp cả chuỗi).
+   */
+  private maskEmailLocalHead2Tail2(value: string): string {
     const atIndex = value.indexOf('@');
     if (atIndex <= 0) {
       return this.fullMask('email');
     }
 
     const local = value.slice(0, atIndex);
-    const domain = value.slice(atIndex);
-    const visible = Math.min(keep, local.length);
-    const masked = '*'.repeat(Math.max(0, local.length - visible));
-    return `${local.slice(0, visible)}${masked}${domain}`;
-  }
+    const domainWithAt = value.slice(atIndex);
 
-  private maskEmailKeepLastOneBeforeAt(value: string): string {
-    const atIndex = value.indexOf('@');
-    if (atIndex <= 0) {
-      return this.fullMask('email');
+    if (local.length < 4) {
+      return `${'*'.repeat(local.length)}${domainWithAt}`;
     }
 
-    const local = value.slice(0, atIndex);
-    const domain = value.slice(atIndex);
-    if (local.length <= 2) {
-      return `${'*'.repeat(local.length)}${domain}`;
-    }
-
-    if (local.length <= 4) {
-      return `${local.slice(0, -2)}**${domain}`;
-    }
-
-    return `${local.slice(0, -1)}*${domain}`;
+    const head = local.slice(0, 2);
+    const tail = local.slice(-2);
+    const midLen = local.length - 4;
+    return `${head}${'*'.repeat(midLen)}${tail}${domainWithAt}`;
   }
 }

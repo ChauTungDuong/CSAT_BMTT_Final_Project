@@ -297,6 +297,16 @@ export function ProfilePage() {
             <form onSubmit={handleSave} className="space-y-4 pt-2">
               <div>
                 <label className="block text-sm text-gray-600 mb-1">
+                  Tên đăng nhập
+                </label>
+                <input
+                  readOnly
+                  value={profile?.username ?? ""}
+                  className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-gray-600"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">
                   Họ và tên
                 </label>
                 <input
@@ -381,6 +391,10 @@ export function ProfilePage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <ProfileInfoCard
+                  label="Tên đăng nhập"
+                  value={profile?.username}
+                />
                 <ProfileInfoCard label="Họ và tên" value={profile?.fullName} />
                 <ProfileInfoCard label="Email" value={profile?.email} />
                 <ProfileInfoCard label="Số điện thoại" value={profile?.phone} />

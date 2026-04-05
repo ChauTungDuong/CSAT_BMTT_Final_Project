@@ -151,8 +151,11 @@ export class CustomersService {
     const roleToUse = Role.CUSTOMER;
     const pinMode = isOwner && this.isPinViewSessionValid(viewerId, viewToken);
 
+    const user = await this.userRepo.findOne({ where: { id: customer.userId } });
+
     return {
       id: customer.id,
+      username: user?.username ?? '',
       fullName: customer.fullName,
       email: this.masking.mask(
         this.emailCrypto.readEmail(customer.email),

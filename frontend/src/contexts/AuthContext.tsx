@@ -6,12 +6,6 @@ import {
   ReactNode,
 } from "react";
 import api from "../api/client";
-import {
-  getMockAuthPayloadForRole,
-  isDevMockEnabled,
-  isMockAutoLoginEnabled,
-  MOCK_LOGGED_OUT_KEY,
-} from "../mocks/devMockData";
 
 interface AuthUser {
   accessToken: string;
@@ -34,23 +28,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (
-      isDevMockEnabled() &&
-      isMockAutoLoginEnabled() &&
-      !sessionStorage.getItem("auth") &&
-      !sessionStorage.getItem(MOCK_LOGGED_OUT_KEY)
-    ) {
-      const role =
-        import.meta.env.VITE_MOCK_ROLE === "admin" ? "admin" : "customer";
-      const mockUser = getMockAuthPayloadForRole(role);
-      setUser(mockUser);
-      api.defaults.headers.common["Authorization"] =
-        `Bearer ${mockUser.accessToken}`;
-      sessionStorage.setItem("auth", JSON.stringify(mockUser));
-      setIsLoading(false);
-      return;
-    }
-
+    // Restore from sessionStorage (not localStorage for security)
     const stored = sessionStorage.getItem("auth");
     if (stored) {
       const parsed = JSON.parse(stored) as AuthUser;
@@ -66,7 +44,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       username,
       password,
     });
-    sessionStorage.removeItem(MOCK_LOGGED_OUT_KEY);
     setUser(data);
     api.defaults.headers.common["Authorization"] = `Bearer ${data.accessToken}`;
     sessionStorage.setItem("auth", JSON.stringify(data));
@@ -74,15 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      if (!isDevMockEnabled()) {
-        await api.post("/auth/logout");
-      }
+      await api.post("/auth/logout");
     } catch {
       // Ignore backend errors and continue local cleanup.
     } finally {
-      if (isDevMockEnabled()) {
-        sessionStorage.setItem(MOCK_LOGGED_OUT_KEY, "1");
-      }
       setUser(null);
       delete api.defaults.headers.common["Authorization"];
       sessionStorage.removeItem("auth");

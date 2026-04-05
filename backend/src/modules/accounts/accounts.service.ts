@@ -44,19 +44,26 @@ export class AccountsService {
     return Promise.all(
       accounts.map(async (acc) => {
         const accountNumberPlain =
-          await this.accountCrypto.decryptAccountNumber(
+          await this.accountCrypto.decryptAccountNumberForUser(
+            userId,
             this.aes.deserialize(acc.accountNumber as Buffer),
           );
 
-        const balancePlain = await this.aes.decrypt(
+        const ownerBalancePlain = await this.aes.decryptForUser(
+          userId,
           this.aes.deserialize(acc.balance as Buffer),
         );
 
-        const balanceMasked = balancePlain
-          ? this.masking.mask(balancePlain, 'balance', Role.CUSTOMER, false)
+        const balanceMasked = ownerBalancePlain
+          ? this.masking.mask(
+              ownerBalancePlain,
+              'balance',
+              Role.CUSTOMER,
+              false,
+            )
           : '••••••';
 
-        const formattedBalance = `${parseFloat(balancePlain || '0').toLocaleString('vi-VN')} đ`;
+        const formattedBalance = `${parseFloat(ownerBalancePlain || '0').toLocaleString('vi-VN')} đ`;
 
         return {
           id: acc.id,

@@ -21,6 +21,8 @@ import { EmailCryptoService } from '../../crypto/services/email-crypto.service';
 
 @Injectable()
 export class CustomersService {
+  private readonly piiHashKey: Buffer;
+
   private readonly pinViewSessions = new Map<
     string,
     { token: string; expiresAt: number }
@@ -44,12 +46,41 @@ export class CustomersService {
     private mailService: MailService,
     private pbkdf2: Pbkdf2Service,
     private emailCrypto: EmailCryptoService,
-  ) {}
+  ) {
+    const piiHashKeyHex =
+      (process.env.EMAIL_HASH_KEY || process.env.AES_MASTER_KEY || '')
+        .trim()
+        .toLowerCase();
+
+    if (!/^[0-9a-f]{64}$/.test(piiHashKeyHex)) {
+      throw new Error(
+        'EMAIL_HASH_KEY hoặc AES_MASTER_KEY phải là 64 hex chars để băm dữ liệu định danh',
+      );
+    }
+    this.piiHashKey = Buffer.from(piiHashKeyHex, 'hex');
+  }
 
   // ── TẠO PROFILE KHÁCH HÀNG ───────────────────────────────────
   async createProfile(userId: string, dto: CreateCustomerDto, ip: string) {
     const existing = await this.customerRepo.findOne({ where: { userId } });
     if (existing) throw new BadRequestException('Hồ sơ khách hàng đã tồn tại');
+
+    const normalizedPhone = this.normalizePiiValue(dto.phone);
+    const normalizedCccd = this.normalizePiiValue(dto.cccd);
+    const phoneHash = this.hashPiiValue(normalizedPhone);
+    const cccdHash = this.hashPiiValue(normalizedCccd);
+
+    const [existingPhone, existingCccd] = await Promise.all([
+      this.customerRepo.findOne({ where: { phoneHash } }),
+      this.customerRepo.findOne({ where: { cccdHash } }),
+    ]);
+
+    if (existingPhone) {
+      throw new BadRequestException('Số điện thoại đã tồn tại');
+    }
+    if (existingCccd) {
+      throw new BadRequestException('CCCD đã tồn tại');
+    }
 
     const [phone, cccd, dob, address] = await Promise.all([
       this.aes.encrypt(dto.phone),
@@ -67,6 +98,8 @@ export class CustomersService {
       fullName: dto.fullName,
       email: this.emailCrypto.encryptEmail(dto.email),
       emailHash: this.emailCrypto.hashEmail(dto.email),
+      phoneHash,
+      cccdHash,
       phone: this.aes.serialize(phone),
       cccd: this.aes.serialize(cccd),
       dateOfBirth: this.aes.serialize(dob),
@@ -648,5 +681,13 @@ export class CustomersService {
     }
 
     return value;
+  }
+
+  private normalizePiiValue(value: string): string {
+    return String(value || '').trim();
+  }
+
+  private hashPiiValue(value: string): string {
+    return this.pbkdf2.hmacHex(this.normalizePiiValue(value), this.piiHashKey);
   }
 }

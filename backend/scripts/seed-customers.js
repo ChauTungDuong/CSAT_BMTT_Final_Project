@@ -178,6 +178,16 @@ function hashEmail(email) {
   );
 }
 
+function normalizePiiValue(value) {
+  return String(value || '').trim();
+}
+
+function hashPiiValue(value) {
+  return hmacSha256(masterKey, Buffer.from(normalizePiiValue(value), 'utf8')).toString(
+    'hex',
+  );
+}
+
 const admins = [
   {
     id: 'USR-ADMIN-001',
@@ -400,6 +410,8 @@ async function upsertCustomer(conn, c, userDek) {
   const normalizedEmail = normalizeEmail(c.email);
   const emailEncrypted = encryptCellWithKey(masterKey, normalizedEmail);
   const emailHash = hashEmail(normalizedEmail);
+  const phoneHash = hashPiiValue(c.phone);
+  const cccdHash = hashPiiValue(c.cccd);
   const encPhone = encryptCellWithKey(userDek, c.phone);
   const encCccd = encryptCellWithKey(userDek, c.cccd);
   const encDob = encryptCellWithKey(userDek, c.dob);
@@ -418,6 +430,8 @@ async function upsertCustomer(conn, c, userDek) {
            FULL_NAME = :fullName,
            EMAIL = :email,
            EMAIL_HASH = :emailHash,
+           PHONE_HASH = :phoneHash,
+           CCCD_HASH = :cccdHash,
            PHONE = :phone,
            CCCD = :cccd,
            DATE_OF_BIRTH = :dob,
@@ -434,6 +448,8 @@ async function upsertCustomer(conn, c, userDek) {
         fullName: c.fullName,
         email: { val: emailEncrypted, type: oracledb.BUFFER },
         emailHash,
+        phoneHash,
+        cccdHash,
         phone: { val: encPhone, type: oracledb.BUFFER },
         cccd: { val: encCccd, type: oracledb.BUFFER },
         dob: { val: encDob, type: oracledb.BUFFER },
@@ -446,10 +462,10 @@ async function upsertCustomer(conn, c, userDek) {
 
   await conn.execute(
     `INSERT INTO CUSTOMERS (
-       ID, USER_ID, FULL_NAME, EMAIL, EMAIL_HASH, PHONE, CCCD, DATE_OF_BIRTH, ADDRESS,
+       ID, USER_ID, FULL_NAME, EMAIL, EMAIL_HASH, PHONE_HASH, CCCD_HASH, PHONE, CCCD, DATE_OF_BIRTH, ADDRESS,
        PIN_HASH, PIN_FAILED_ATTEMPTS, PIN_LOCKED, PIN_LOCKED_AT
      ) VALUES (
-       :id, :userId, :fullName, :email, :emailHash, :phone, :cccd, :dob, :address,
+       :id, :userId, :fullName, :email, :emailHash, :phoneHash, :cccdHash, :phone, :cccd, :dob, :address,
        :pinHash, 0, 0, NULL
      )`,
     {
@@ -458,6 +474,8 @@ async function upsertCustomer(conn, c, userDek) {
       fullName: c.fullName,
       email: { val: emailEncrypted, type: oracledb.BUFFER },
       emailHash,
+      phoneHash,
+      cccdHash,
       phone: { val: encPhone, type: oracledb.BUFFER },
       cccd: { val: encCccd, type: oracledb.BUFFER },
       dob: { val: encDob, type: oracledb.BUFFER },

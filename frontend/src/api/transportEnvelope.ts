@@ -11,7 +11,7 @@ export type TransportPublicKeyMeta =
   | { enabled: false }
   | { enabled: true; alg: string; kid: string; n: string; e: string };
 
-const META_TTL_MS = 60_000;
+const META_TTL_MS = 180_000;
 const NONCE_BYTES = 16;
 const AES_GCM_TAG_BYTES = 16;
 

@@ -26,8 +26,14 @@ export class Customer {
   @Column({ name: 'PHONE', type: 'blob' })
   phone: Buffer;
 
+  @Column({ name: 'PHONE_HASH', length: 64, nullable: true })
+  phoneHash: string | null;
+
   @Column({ name: 'CCCD', type: 'blob' })
   cccd: Buffer;
+
+  @Column({ name: 'CCCD_HASH', length: 64, nullable: true })
+  cccdHash: string | null;
 
   @Column({ name: 'DATE_OF_BIRTH', type: 'blob' })
   dateOfBirth: Buffer;

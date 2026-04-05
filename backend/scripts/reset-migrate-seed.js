@@ -215,6 +215,7 @@ async function main() {
     '08_user_key_metadata.sql',
     '09_key_recovery_wrap.sql',
     '10_email_security_and_lock_policy.sql',
+    '11_customer_phone_cccd_hash.sql',
   ];
   const fullFiles = ['00_reset.sql', '01_schema.sql', ...migrateFiles];
   const sqlFiles = migrateOnly ? migrateFiles : fullFiles;

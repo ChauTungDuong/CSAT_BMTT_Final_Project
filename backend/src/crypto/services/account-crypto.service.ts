@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AesService } from './aes.service';
 import { Pbkdf2Service } from './pbkdf2.service';
@@ -10,7 +10,6 @@ import { Pbkdf2Service } from './pbkdf2.service';
  */
 @Injectable()
 export class AccountCryptoService {
-  private readonly logger = new Logger(AccountCryptoService.name);
   private readonly hmacKey: Buffer;
 
   constructor(
@@ -33,28 +32,9 @@ export class AccountCryptoService {
     return this.pbkdf2.hmacHex(normalized, this.hmacKey);
   }
 
-  /**
-   * Mã hóa số tài khoản bằng AES-256-GCM
-   * @param accountNumber Số tài khoản plaintext
-   * @returns EncryptedCell object (dạng serialize được)
-   */
-  async encryptAccountNumber(accountNumber: string) {
-    const normalized = accountNumber.trim();
-    return await this.aes.encrypt(normalized);
-  }
-
   async encryptAccountNumberForUser(userId: string, accountNumber: string) {
     const normalized = accountNumber.trim();
     return await this.aes.encryptForUser(userId, normalized);
-  }
-
-  /**
-   * Giải mã số tài khoản
-   * @param encrypted EncryptedCell object (dạng từ DB)
-   * @returns plaintext accountNumber
-   */
-  async decryptAccountNumber(encrypted: any): Promise<string | null> {
-    return await this.aes.decrypt(encrypted);
   }
 
   async decryptAccountNumberForUser(

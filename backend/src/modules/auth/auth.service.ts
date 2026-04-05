@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as crypto from 'crypto';
 import { User } from './entities/user.entity';
@@ -34,6 +34,7 @@ import {
 @Injectable()
 export class AuthService {
   private readonly recoveryWrapKey: Buffer | null;
+  private readonly piiHashKey: Buffer;
 
   private readonly forgotPasswordOtps = new Map<
     string,
@@ -67,6 +68,21 @@ export class AuthService {
       .toLowerCase();
     this.recoveryWrapKey =
       recoveryKeyHex.length === 64 ? Buffer.from(recoveryKeyHex, 'hex') : null;
+
+    const piiHashKeyHex = (
+      this.config.get<string>('EMAIL_HASH_KEY') ||
+      this.config.get<string>('AES_MASTER_KEY') ||
+      ''
+    )
+      .trim()
+      .toLowerCase();
+
+    if (!/^[0-9a-f]{64}$/.test(piiHashKeyHex)) {
+      throw new Error(
+        'EMAIL_HASH_KEY hoặc AES_MASTER_KEY phải là 64 hex chars để băm dữ liệu định danh',
+      );
+    }
+    this.piiHashKey = Buffer.from(piiHashKeyHex, 'hex');
   }
 
   async register(dto: RegisterDto, ip: string) {
@@ -84,16 +100,40 @@ export class AuthService {
     if (exists)
       throw new ConflictException('Tên đăng nhập hoặc email đã tồn tại');
 
-    // Uniqueness check for phone and cccd.
-    // Do not use context-dependent decrypt() here because register is pre-auth flow.
-    const allCustomers = await this.customerRepo.find();
-    for (const c of allCustomers) {
+    const normalizedPhone = this.normalizePiiValue(dto.phone);
+    const normalizedCccd = this.normalizePiiValue(dto.cccd);
+    const phoneHash = this.hashPiiValue(normalizedPhone);
+    const cccdHash = this.hashPiiValue(normalizedCccd);
+
+    const [existsByPhoneHash, existsByCccdHash] = await Promise.all([
+      this.customerRepo.findOne({ where: { phoneHash } }),
+      this.customerRepo.findOne({ where: { cccdHash } }),
+    ]);
+
+    if (existsByPhoneHash) {
+      throw new ConflictException('Số điện thoại đã tồn tại');
+    }
+    if (existsByCccdHash) {
+      throw new ConflictException('Căn cước công dân đã tồn tại');
+    }
+
+    // Legacy fallback: chỉ quét các dòng cũ chưa có hash.
+    const legacyCustomers = await this.customerRepo.find({
+      where: [{ phoneHash: IsNull() }, { cccdHash: IsNull() }],
+    });
+    for (const c of legacyCustomers) {
       const decPhone = await this.decryptCustomerFieldForUniqueness(c, c.phone);
       const decCccd = await this.decryptCustomerFieldForUniqueness(c, c.cccd);
-      if (decPhone !== null && decPhone === dto.phone) {
+      if (
+        decPhone !== null &&
+        this.normalizePiiValue(decPhone) === normalizedPhone
+      ) {
         throw new ConflictException('Số điện thoại đã tồn tại');
       }
-      if (decCccd !== null && decCccd === dto.cccd) {
+      if (
+        decCccd !== null &&
+        this.normalizePiiValue(decCccd) === normalizedCccd
+      ) {
         throw new ConflictException('Căn cước công dân đã tồn tại');
       }
     }
@@ -141,7 +181,9 @@ export class AuthService {
       email: this.emailCrypto.encryptEmail(normalizedEmail),
       emailHash,
       phone: this.aesService.serialize(encPhone),
+      phoneHash,
       cccd: this.aesService.serialize(encCccd),
+      cccdHash,
       dateOfBirth: this.aesService.serialize(encDob),
       address: this.aesService.serialize(encAddr),
     });
@@ -889,5 +931,13 @@ export class AuthService {
     } catch {
       return null;
     }
+  }
+
+  private normalizePiiValue(value: string): string {
+    return String(value || '').trim();
+  }
+
+  private hashPiiValue(value: string): string {
+    return this.pbkdf2.hmacHex(this.normalizePiiValue(value), this.piiHashKey);
   }
 }

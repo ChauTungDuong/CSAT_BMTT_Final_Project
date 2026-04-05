@@ -122,9 +122,17 @@ export class TransactionsService {
       if (!toAccount)
         throw new NotFoundException('Tài khoản đích không tồn tại');
 
+      const toCustomer = await queryRunner.manager.findOne(Customer, {
+        where: { id: toAccount.customerId },
+      });
+      if (!toCustomer) {
+        throw new NotFoundException('Không tìm thấy chủ sở hữu tài khoản đích');
+      }
+
       // Decrypt số dư
       const fromBalance = parseFloat(
-        (await this.aes.decrypt(
+        (await this.aes.decryptForUser(
+          userId,
           this.aes.deserialize(fromAccount.balance as Buffer),
         )) || '0',
       );
@@ -132,17 +140,21 @@ export class TransactionsService {
         throw new BadRequestException('Số dư không đủ');
 
       const toBalance = parseFloat(
-        (await this.aes.decrypt(
+        (await this.aes.decryptForUser(
+          toCustomer.userId,
           this.aes.deserialize(toAccount.balance as Buffer),
         )) || '0',
       );
 
       // Cập nhật số dư với IV mới
       fromAccount.balance = this.aes.serialize(
-        await this.aes.encrypt(String(fromBalance - dto.amount)),
+        await this.aes.encryptForUser(userId, String(fromBalance - dto.amount)),
       );
       toAccount.balance = this.aes.serialize(
-        await this.aes.encrypt(String(toBalance + dto.amount)),
+        await this.aes.encryptForUser(
+          toCustomer.userId,
+          String(toBalance + dto.amount),
+        ),
       );
 
       await queryRunner.manager.save(fromAccount);
@@ -155,7 +167,8 @@ export class TransactionsService {
         id: txId,
         fromAccountId: fromAccount.id,
         toAccountId: toAccount.id,
-        amount: this.aes.serialize(await this.aes.encrypt(String(dto.amount))),
+        // Shared history: store amount as clear cell so both sender and receiver can read consistently.
+        amount: this.aes.serialize({ type: 'clear', data: String(dto.amount) }),
         transactionType: 'transfer',
         status: 'completed',
         description: dto.description || null,

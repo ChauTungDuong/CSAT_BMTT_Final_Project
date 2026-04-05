@@ -10,6 +10,13 @@ import { User } from '../entities/user.entity';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
+  private readonly userStatusCache = new Map<
+    string,
+    { isActive: boolean; lockReason: string | null; expiresAt: number }
+  >();
+
+  private readonly userStatusCacheTtlMs = 5_000;
+
   constructor(
     private readonly config: ConfigService,
     private readonly sessionRegistry: SessionRegistryService,
@@ -24,7 +31,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    const user = await this.userRepo.findOne({ where: { id: payload.sub } });
+    const user = await this.getUserStatus(payload.sub);
     if (!user) {
       throw new UnauthorizedException('USER_NOT_FOUND');
     }
@@ -56,5 +63,31 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       customerId: payload.customerId,
       sid: payload.sid,
     };
+  }
+
+  private async getUserStatus(userId: string) {
+    const now = Date.now();
+    const cached = this.userStatusCache.get(userId);
+    if (cached && cached.expiresAt > now) {
+      return {
+        id: userId,
+        isActive: cached.isActive,
+        lockReason: cached.lockReason,
+      };
+    }
+
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) {
+      this.userStatusCache.delete(userId);
+      return null;
+    }
+
+    this.userStatusCache.set(userId, {
+      isActive: !!user.isActive,
+      lockReason: user.lockReason || null,
+      expiresAt: now + this.userStatusCacheTtlMs,
+    });
+
+    return user;
   }
 }

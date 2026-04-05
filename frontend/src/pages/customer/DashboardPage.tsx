@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import api from "../../api/client";
 import { MaskedField } from "../../components/common/MaskedField";
-import { PinModal } from "../../components/common/PinModal";
 import type { Account, Customer } from "../../types";
 import { accountTypeLabel } from "../../utils/accountLabels";
 
@@ -119,34 +118,18 @@ const quickActions = [
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [viewToken, setViewToken] = useState<string | null>(null);
   const [showBalance, setShowBalance] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const { data: profile, isPending: profilePending } = useQuery<Customer>({
-    queryKey: ["my-profile", viewToken],
-    queryFn: async () =>
-      (
-        await api.get("/customers/me", {
-          params: viewToken ? { viewToken } : undefined,
-        })
-      ).data,
+    queryKey: ["my-profile"],
+    queryFn: async () => (await api.get("/customers/me")).data,
   });
 
   const { data: accounts, isPending: accountsPending } = useQuery<Account[]>({
-    queryKey: ["my-accounts", viewToken],
+    queryKey: ["my-accounts"],
     queryFn: async () => (await api.get("/accounts/me")).data,
   });
-
-  const handlePinSuccess = (payload?: { viewToken?: string }) => {
-    if (payload?.viewToken) {
-      setViewToken(payload.viewToken);
-    }
-    setShowPinModal(false);
-  };
-
-  const pinVerified = !!profile?.isPinVerified;
 
   const copyAccountNumber = useCallback(async (accountId: string, raw: string) => {
     const digits = raw.replace(/\D/g, "");
@@ -316,56 +299,38 @@ export function DashboardPage() {
             className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm ring-1 ring-slate-100 sm:p-7"
             aria-labelledby="profile-heading"
           >
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 id="profile-heading" className="text-lg font-semibold text-slate-800">
-                  Thông tin cá nhân
-                </h2>
-              </div>
-              {!pinVerified && (
-                <button
-                  type="button"
-                  onClick={() => setShowPinModal(true)}
-                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H3v-4.875l6.75-6.75a1.875 1.875 0 011.563-.43c.356.061.698.098 1.029.11a6 6 0 01-1.11-3.75" />
-                  </svg>
-                  Xem chi tiết
-                </button>
-              )}
-            </div>
+            <h2 id="profile-heading" className="text-lg font-semibold text-slate-800">
+              Thông tin cá nhân
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Email, số điện thoại và CCCD hiển thị dạng che trên trang chủ. Để xem đầy đủ, mở{" "}
+              <Link to="/profile" className="font-medium text-blue-600 hover:underline">
+                Hồ sơ
+              </Link>
+              .
+            </p>
 
             <div className="mt-4 rounded-xl border border-slate-200/80 bg-slate-50/60 p-4 sm:p-5">
               <h3 className="text-sm font-semibold text-slate-700">Thông tin cơ bản</h3>
               <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2">
+                <MaskedField
+                  label="Tên đăng nhập"
+                  value={profile?.username}
+                  isMasked={false}
+                />
                 <MaskedField label="Họ và tên" value={profile?.fullName} isMasked={false} />
+                <MaskedField label="Email" value={profile?.email} isMasked />
+                <MaskedField label="CCCD" value={profile?.cccd} isMasked />
+                <MaskedField label="Số điện thoại" value={profile?.phone} isMasked />
                 <MaskedField label="Ngày sinh" value={profile?.dateOfBirth} isMasked={false} />
                 <div className="md:col-span-2">
                   <MaskedField label="Địa chỉ" value={profile?.address} isMasked={false} />
                 </div>
               </dl>
             </div>
-
-            <div className="mt-4 rounded-xl border border-amber-200/90 bg-amber-50/70 p-4 sm:p-5">
-              <h3 className="text-sm font-semibold text-amber-900">Thông tin nhạy cảm</h3>
-              <dl className="mt-3 grid grid-cols-1 gap-x-8 gap-y-1 md:grid-cols-2">
-                <MaskedField label="Email" value={profile?.email} isMasked={!profile?.isPinVerified} />
-                <MaskedField label="Số điện thoại" value={profile?.phone} isMasked={!profile?.isPinVerified} />
-                <MaskedField label="CCCD" value={profile?.cccd} isMasked={!profile?.isPinVerified} />
-              </dl>
-            </div>
           </section>
         )}
       </div>
-
-      {showPinModal && (
-        <PinModal
-          customerId={profile?.id}
-          onSuccess={handlePinSuccess}
-          onClose={() => setShowPinModal(false)}
-        />
-      )}
     </div>
   );
 }
